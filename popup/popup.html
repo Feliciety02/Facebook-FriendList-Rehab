@@ -7,38 +7,145 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand-mark">FR</div>
-    <div>
-      <h1>FriendList Rehab</h1>
-      <p>Clean your friend list. Keep the real ones.</p>
-    </div>
-  </header>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <span class="brand-text">FriendList Rehab</span>
+      </div>
+      <div class="xp-badge" id="xpBadge">
+        <span class="xp-level" id="xpLevel">Lvl 1</span>
+        <span class="xp-text" id="xpText">0 XP</span>
+      </div>
+    </header>
 
-  <main>
-    <section class="notice" id="pageNotice">Open your Facebook Friends page to begin.</section>
+    <main>
+      <section class="guide" id="guideSection">
+        <div class="guide-icon" id="guideIcon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </div>
+        <h2 class="guide-title" id="guideTitle">Not on Facebook yet</h2>
+        <p class="guide-desc" id="guideDesc">Open Facebook and navigate to your Friends page to start scanning.</p>
 
-    <section class="stats">
-      <div><strong id="totalCount">0</strong><span>Scanned</span></div>
-      <div><strong id="keepCount">0</strong><span>Keep</span></div>
-      <div><strong id="reviewCount">0</strong><span>Review</span></div>
-      <div><strong id="inactiveCount">0</strong><span>Inactive</span></div>
-    </section>
+        <div class="steps" id="guideSteps">
+          <div class="step">
+            <span class="step-num">1</span>
+            <span>Go to <b>facebook.com</b></span>
+          </div>
+          <div class="step">
+            <span class="step-num">2</span>
+            <span>Click your <b>profile picture</b> or <b>Friends</b> in the sidebar</span>
+          </div>
+          <div class="step">
+            <span class="step-num">3</span>
+            <span>Select <b>Friends</b> from the menu</span>
+          </div>
+        </div>
 
-    <button class="primary" id="scanButton">Scan loaded friends</button>
-    <button class="secondary" id="dashboardButton">Open review dashboard</button>
+        <button class="action-btn primary" id="navBtn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          <span id="navBtnText">Open Facebook</span>
+        </button>
 
-    <label class="toggle-row">
-      <input type="checkbox" id="watchToggle">
-      <span>
-        <b>Continue while I scroll</b>
-        <small>Scans newly loaded friend cards.</small>
-      </span>
-    </label>
+        <div class="guide-note" id="guideNote">The extension scans automatically once you're on the right page.</div>
+      </section>
 
-    <div class="dry-run" id="dryRunBadge">Dry Run: ON</div>
-  </main>
+      <section class="stat-row" id="statSection">
+        <button class="stat-pill" data-filter="KEEP">
+          <span class="stat-dot green"></span>
+          <span id="keepCount">0</span> keep
+        </button>
+        <button class="stat-pill" data-filter="REVIEW">
+          <span class="stat-dot amber"></span>
+          <span id="reviewCount">0</span> review
+        </button>
+        <button class="stat-pill" data-filter="LIKELY_INACTIVE">
+          <span class="stat-dot red"></span>
+          <span id="inactiveCount">0</span> inactive
+        </button>
+      </section>
 
+      <section class="scan-ui hidden" id="scanSection">
+        <div class="hero">
+          <div class="ring-wrap">
+            <svg class="ring" viewBox="0 0 100 100">
+              <circle class="ring-bg" cx="50" cy="50" r="42" />
+              <circle class="ring-fill" id="progressRing" cx="50" cy="50" r="42" />
+            </svg>
+            <div class="ring-center">
+              <span class="ring-number" id="totalCount">0</span>
+              <span class="ring-label">scanned</span>
+            </div>
+          </div>
+          <div class="hero-text">
+            <h1>Clean list,<br>real friends.</h1>
+            <p id="pageNotice">Open Facebook Friends page to start.</p>
+          </div>
+        </div>
+
+        <section class="stat-row">
+          <button class="stat-pill" data-filter="KEEP">
+            <span class="stat-dot green"></span>
+            <span id="keepCount">0</span> keep
+          </button>
+          <button class="stat-pill" data-filter="REVIEW">
+            <span class="stat-dot amber"></span>
+            <span id="reviewCount">0</span> review
+          </button>
+          <button class="stat-pill" data-filter="LIKELY_INACTIVE">
+            <span class="stat-dot red"></span>
+            <span id="inactiveCount">0</span> inactive
+          </button>
+        </section>
+
+        <div class="progress-wrap hidden" id="progressWrap">
+          <div class="progress-label">
+            <span class="spinner"></span>
+            <span id="progressMsg">Finding friends...</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" id="progressFill"></div>
+          </div>
+          <div class="progress-meta">
+            <span id="progressCount">0 found</span>
+            <button class="link-btn" id="cancelBtn">cancel</button>
+          </div>
+        </div>
+
+        <button class="action-btn primary" id="scanBtn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span>Scan all friends</span>
+        </button>
+
+        <button class="action-btn ghost" id="dashBtn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          <span>Review dashboard</span>
+        </button>
+
+        <label class="toggle">
+          <input type="checkbox" id="watchToggle">
+          <span class="toggle-slider"></span>
+          <span class="toggle-label">
+            <b>Auto-scan on scroll</b>
+            <small>Catches friends as they load</small>
+          </span>
+        </label>
+
+        <div class="footer-pill" id="dryBadge">
+          <span class="footer-dot"></span>
+          Dry Run ON
+        </div>
+      </section>
+    </main>
+
+    <div class="confetti-container" id="confettiContainer"></div>
+  </div>
+
+  <canvas id="confettiCanvas" class="confetti-canvas"></canvas>
+
+  <script src="confetti.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

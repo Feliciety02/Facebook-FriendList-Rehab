@@ -3,10 +3,77 @@ const KEYS = {
   SETTINGS: "friendlistRehabSettings"
 };
 
-const scanButton = document.getElementById("scanButton");
-const dashboardButton = document.getElementById("dashboardButton");
+const XP_PER_SCAN = 10;
+const XP_PER_REVIEW = 25;
+const XP_PER_UNFRIEND = 50;
+const LEVEL_XP = [0, 50, 150, 350, 600, 1000, 1600, 2500, 4000, 6000, 9999999];
+
+const scanBtn = document.getElementById("scanBtn");
+const dashBtn = document.getElementById("dashBtn");
 const watchToggle = document.getElementById("watchToggle");
+const cancelBtn = document.getElementById("cancelBtn");
+const progressWrap = document.getElementById("progressWrap");
+const progressMsg = document.getElementById("progressMsg");
+const progressFill = document.getElementById("progressFill");
+const progressCount = document.getElementById("progressCount");
 const pageNotice = document.getElementById("pageNotice");
+const guideSection = document.getElementById("guideSection");
+const scanSection = document.getElementById("scanSection");
+const guideIcon = document.getElementById("guideIcon");
+const guideTitle = document.getElementById("guideTitle");
+const guideDesc = document.getElementById("guideDesc");
+const guideSteps = document.getElementById("guideSteps");
+const guideNote = document.getElementById("guideNote");
+const navBtn = document.getElementById("navBtn");
+const navBtnText = document.getElementById("navBtnText");
+
+let polling = null;
+
+function getLevel(xp) {
+  let lvl = 1;
+  for (let i = 1; i < LEVEL_XP.length; i++) {
+    if (xp >= LEVEL_XP[i]) lvl = i + 1;
+    else break;
+  }
+  return Math.min(lvl, 10);
+}
+
+function xpForNext(lvl) {
+  return LEVEL_XP[Math.min(lvl, LEVEL_XP.length - 1)];
+}
+
+function xpForPrev(lvl) {
+  return LEVEL_XP[Math.max(0, lvl - 2)] || 0;
+}
+
+async function getXp() {
+  const d = await chrome.storage.local.get(["friendlistRehabXp"]);
+  return d.friendlistRehabXp || 0;
+}
+
+async function addXp(amount) {
+  const current = await getXp();
+  const newTotal = current + amount;
+  await chrome.storage.local.set({ friendlistRehabXp: newTotal });
+  renderXp(newTotal);
+  return newTotal;
+}
+
+function renderXp(xp) {
+  const lvl = getLevel(xp);
+  const next = xpForNext(lvl);
+  const prev = xpForPrev(lvl);
+  const inLevel = xp - prev;
+  const needed = next - prev;
+
+  document.getElementById("xpLevel").textContent = `Lvl ${lvl}`;
+  document.getElementById("xpText").textContent = `${xp} XP`;
+
+  const badge = document.getElementById("xpBadge");
+  badge.classList.remove("pop");
+  void badge.offsetWidth;
+  badge.classList.add("pop");
+}
 
 async function activeFacebookTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -17,11 +84,11 @@ async function activeFacebookTab() {
 async function refreshStats() {
   const data = await chrome.storage.local.get([KEYS.FRIENDS, KEYS.SETTINGS]);
   const friends = data[KEYS.FRIENDS] || [];
-  const counts = friends.reduce((acc, friend) => {
-    acc.total += 1;
-    if (friend.status === "KEEP") acc.keep += 1;
-    if (friend.status === "REVIEW") acc.review += 1;
-    if (friend.status === "LIKELY_INACTIVE") acc.inactive += 1;
+  const counts = friends.reduce((acc, f) => {
+    acc.total++;
+    if (f.status === "KEEP") acc.keep++;
+    if (f.status === "REVIEW") acc.review++;
+    if (f.status === "LIKELY_INACTIVE") acc.inactive++;
     return acc;
   }, { total: 0, keep: 0, review: 0, inactive: 0 });
 
@@ -29,7 +96,13 @@ async function refreshStats() {
   document.getElementById("keepCount").textContent = counts.keep;
   document.getElementById("reviewCount").textContent = counts.review;
   document.getElementById("inactiveCount").textContent = counts.inactive;
-  document.getElementById("dryRunBadge").textContent = `Dry Run: ${(data[KEYS.SETTINGS]?.dryRun ?? true) ? "ON" : "OFF"}`;
+
+  const circumference = 2 * Math.PI * 42;
+  const offset = circumference - (Math.min(counts.total / 500, 1) * circumference);
+  document.getElementById("progressRing").style.strokeDashoffset = offset;
+
+  document.getElementById("dryBadge").innerHTML =
+    `<span class="footer-dot"></span>Dry Run: ${(data[KEYS.SETTINGS]?.dryRun ?? true) ? "ON" : "OFF"}`;
 }
 
 async function sendToActive(message) {
@@ -42,35 +115,227 @@ async function sendToActive(message) {
   }
 }
 
-scanButton.addEventListener("click", async () => {
-  scanButton.disabled = true;
-  scanButton.textContent = "Scanning…";
-  const result = await sendToActive({ type: "SCAN_LOADED_FRIENDS" });
-  pageNotice.textContent = result?.ok
-    ? `Found ${result.loadedCount} loaded friend cards. ${result.totalStored} stored for review.`
-    : (result?.error || "Scan failed.");
+function showProgress(show) {
+  progressWrap.classList.toggle("hidden", !show);
+}
+
+function updateProgress(data) {
+  if (data.message) progressMsg.textContent = data.message;
+  if (data.scanned != null) {
+    const dt = data.displayedTotal;
+    progressCount.textContent = dt
+      ? `${data.scanned} / ${dt} friends`
+      : `${data.scanned} found`;
+    const pct = dt
+      ? Math.min(95, (data.scanned / dt) * 100)
+      : Math.min(95, 10 + data.scanned * .3);
+    progressFill.style.width = pct + "%";
+  }
+}
+
+function startPolling() {
+  stopPolling();
+  polling = setInterval(async () => {
+    const d = await chrome.storage.session.get(["scrollProgress"]);
+    const p = d.scrollProgress;
+    if (!p || Date.now() - p.timestamp > 5000) {
+      if (p?.phase === "complete") {
+        stopPolling();
+        showProgress(false);
+        onScanComplete(p.scanned || 0, p.displayedTotal);
+      }
+      return;
+    }
+    updateProgress(p);
+  }, 800);
+}
+
+function stopPolling() {
+  if (polling) clearInterval(polling);
+  polling = null;
+}
+
+async function onScanComplete(count, displayedTotal) {
+  const pct = displayedTotal ? `${count}/${displayedTotal}` : count;
+  pageNotice.textContent = `Found ${pct} friends. Nice work!`;
+  pageNotice.className = "success";
   await refreshStats();
-  scanButton.disabled = false;
-  scanButton.textContent = "Scan loaded friends";
+  const xp = await addXp(XP_PER_SCAN);
+  setScanBtnReady(true);
+
+  if (typeof fireConfetti === "function") fireConfetti(100);
+
+  if (count >= 100) showAchievement("\ud83c\udfc6", "Century Collector \u2014 100+ friends found!");
+  else if (count >= 50) showAchievement("\u2b50", "Half Century \u2014 50+ friends scanned!");
+  else showAchievement("\u2705", `+${XP_PER_SCAN} XP earned!`);
+}
+
+function setScanBtnReady(ready) {
+  scanBtn.disabled = !ready;
+  scanBtn.innerHTML = ready
+    ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><span>Scan all friends</span>`
+    : `<span class="spinner"></span><span>Scanning...</span>`;
+}
+
+scanBtn.addEventListener("click", async () => {
+  setScanBtnReady(false);
+  showProgress(true);
+  progressMsg.textContent = "Auto-scrolling to find all friends...";
+  startPolling();
+
+  const result = await sendToActive({ type: "AUTO_SCROLL_SCAN" });
+  if (!result?.ok) {
+    stopPolling();
+    showProgress(false);
+    pageNotice.textContent = result?.error || "Scan failed.";
+    pageNotice.className = "error";
+    setScanBtnReady(true);
+    return;
+  }
+  stopPolling();
+  showProgress(false);
+  onScanComplete(result.loadedCount, result.displayedTotal);
+});
+
+cancelBtn.addEventListener("click", async () => {
+  await sendToActive({ type: "CANCEL_AUTO_SCROLL" });
+  stopPolling();
+  showProgress(false);
+  pageNotice.textContent = "Scan cancelled.";
+  pageNotice.className = "";
+  setScanBtnReady(true);
+});
+
+dashBtn.addEventListener("click", () => {
+  chrome.runtime.sendMessage({ type: "OPEN_DASHBOARD" });
 });
 
 watchToggle.addEventListener("change", async () => {
   const type = watchToggle.checked ? "START_WATCH" : "STOP_WATCH";
-  const result = await sendToActive({ type });
-  if (!result?.ok) {
+  const r = await sendToActive({ type });
+  if (!r?.ok) {
     watchToggle.checked = false;
-    pageNotice.textContent = result?.error || "Could not start continuous scanning.";
+    pageNotice.textContent = r?.error || "Could not start auto-scan.";
+    pageNotice.className = "error";
   }
 });
 
-dashboardButton.addEventListener("click", () => {
-  chrome.runtime.sendMessage({ type: "OPEN_DASHBOARD" });
+document.querySelectorAll(".stat-pill").forEach((pill) => {
+  pill.addEventListener("click", () => {
+    chrome.runtime.sendMessage({ type: "OPEN_DASHBOARD" });
+  });
 });
+
+navBtn.addEventListener("click", () => {
+  chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+    const url = (tab?.url || "");
+    if (/facebook\.com/i.test(url)) {
+      if (!/\/friends/i.test(url)) {
+        chrome.tabs.update(tab.id, { url: "https://www.facebook.com/friends" });
+      }
+    } else {
+      chrome.tabs.create({ url: "https://www.facebook.com/friends" });
+    }
+    window.close();
+  });
+});
+
+function showGuide(type) {
+  guideSection.classList.remove("hidden");
+  scanSection.classList.add("hidden");
+
+  if (type === "not-facebook") {
+    guideIcon.className = "guide-icon warning";
+    guideIcon.innerHTML = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
+    guideTitle.textContent = "Not on Facebook yet";
+    guideDesc.textContent = "Open Facebook and navigate to your Friends page to start scanning.";
+    guideSteps.innerHTML = `
+      <div class="step"><span class="step-num">1</span><span>Go to <b>facebook.com</b></span></div>
+      <div class="step"><span class="step-num">2</span><span>Click your <b>profile picture</b> or <b>Friends</b></span></div>
+      <div class="step"><span class="step-num">3</span><span>Select <b>Friends</b> from the menu</span></div>`;
+    guideNote.textContent = "The extension scans automatically once you're on the right page.";
+    navBtnText.textContent = "Open Facebook";
+  } else if (type === "not-friends") {
+    guideIcon.className = "guide-icon";
+    guideIcon.innerHTML = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`;
+    guideTitle.textContent = "Almost there!";
+    guideDesc.textContent = "You're on Facebook, but not on the Friends page. Navigate there to start scanning.";
+    guideSteps.innerHTML = `
+      <div class="step"><span class="step-num">1</span><span>Find <b>Friends</b> in the left sidebar</span></div>
+      <div class="step"><span class="step-num">2</span><span>Or click <b>your profile</b> &rarr; <b>Friends</b> tab</span></div>
+      <div class="step"><span class="step-num">3</span><span>The scan starts automatically</span></div>`;
+    guideNote.textContent = "No manual scrolling needed — the extension handles everything.";
+    navBtnText.textContent = "Go to Friends page";
+  }
+}
+
+function showScanUI() {
+  guideSection.classList.add("hidden");
+  scanSection.classList.remove("hidden");
+}
 
 (async () => {
   const tab = await activeFacebookTab();
-  if (tab && /\/friends(?:\/|\?|$)/i.test(tab.url || "")) {
-    pageNotice.textContent = "Facebook Friends page detected. Scroll normally, then scan loaded friends.";
+
+  if (!tab) {
+    showGuide("not-facebook");
+    await refreshStats();
+    renderXp(await getXp());
+    return;
   }
+
+  const url = tab.url || "";
+  const isFriendsPage = /\/friends(?:\/|\?|$)/i.test(url);
+  const isFacebook = /facebook\.com/i.test(url);
+
+  if (!isFacebook) {
+    showGuide("not-facebook");
+    await refreshStats();
+    renderXp(await getXp());
+    return;
+  }
+
+  if (!isFriendsPage) {
+    showGuide("not-friends");
+    await refreshStats();
+    renderXp(await getXp());
+    return;
+  }
+
+  showScanUI();
+
+  const d = await chrome.storage.session.get(["scrollProgress"]);
+  const p = d.scrollProgress;
+  if (p && p.phase !== "complete" && Date.now() - p.timestamp < 5000) {
+    pageNotice.textContent = "Scan in progress...";
+    pageNotice.className = "success";
+    showProgress(true);
+    startPolling();
+  } else if (p?.phase === "complete") {
+    pageNotice.textContent = `Last scan found ${p.scanned || 0} friends.`;
+    pageNotice.className = "success";
+  } else {
+    pageNotice.textContent = "Scanning your friends list now...";
+    pageNotice.className = "success";
+    setScanBtnReady(false);
+    showProgress(true);
+    startPolling();
+      sendToActive({ type: "AUTO_SCROLL_SCAN" }).then((result) => {
+        if (result?.ok) {
+          stopPolling();
+          showProgress(false);
+          onScanComplete(result.loadedCount, result.displayedTotal);
+        } else {
+        stopPolling();
+        showProgress(false);
+        pageNotice.textContent = result?.error || "Scan complete.";
+        pageNotice.className = result?.ok === false ? "error" : "success";
+        setScanBtnReady(true);
+        refreshStats();
+      }
+    });
+  }
+
   await refreshStats();
+  renderXp(await getXp());
 })();
