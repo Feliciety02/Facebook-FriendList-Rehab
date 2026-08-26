@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FriendList Rehab</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-mark">FR</div>
+    <div>
+      <h1>FriendList Rehab</h1>
+      <p>Clean your friend list. Keep the real ones.</p>
+    </div>
+  </header>
+
+  <main>
+    <section class="notice" id="pageNotice">Open your Facebook Friends page to begin.</section>
+
+    <section class="stats">
+      <div><strong id="totalCount">0</strong><span>Scanned</span></div>
+      <div><strong id="keepCount">0</strong><span>Keep</span></div>
+      <div><strong id="reviewCount">0</strong><span>Review</span></div>
+      <div><strong id="inactiveCount">0</strong><span>Inactive</span></div>
+    </section>
+
+    <button class="primary" id="scanButton">Scan loaded friends</button>
+    <button class="secondary" id="dashboardButton">Open review dashboard</button>
+
+    <label class="toggle-row">
+      <input type="checkbox" id="watchToggle">
+      <span>
+        <b>Continue while I scroll</b>
+        <small>Scans newly loaded friend cards.</small>
+      </span>
+    </label>
+
+    <div class="dry-run" id="dryRunBadge">Dry Run: ON</div>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>
