@@ -4,8 +4,9 @@
 
   const { STORAGE_KEYS, DEFAULT_SETTINGS } = root;
   const utils = root.facebookUtils;
-  let watchObserver = null;
-  let watchEnabled = false;
+  let scrollActive = false;
+  let abortController = null;
+  const scannedIds = new Set();
 
   function safeText(node) {
     return (node?.innerText || node?.textContent || "").replace(/\s+/g, " ").trim();
@@ -75,13 +76,22 @@
     };
   }
 
-  async function scanLoadedFriends() {
-    if (!utils.isFriendsPage()) {
-      return { ok: false, error: "Open your Facebook Friends page first." };
+  function scanDOMForNew() {
+    const main = document.querySelector('[role="main"]') || document.body;
+    const anchors = [...main.querySelectorAll('a[href]')];
+    const newFriends = new Map();
+
+    for (const anchor of anchors) {
+      const friend = extractFriendFromAnchor(anchor);
+      if (!friend) continue;
+      if (scannedIds.has(friend.profileUrl)) continue;
+      if (!newFriends.has(friend.profileUrl)) newFriends.set(friend.profileUrl, friend);
     }
 
-    await chrome.runtime.sendMessage({ type: "REGISTER_FRIENDS_TAB" }).catch(() => {});
+    return newFriends;
+  }
 
+  function scanAllDOM() {
     const main = document.querySelector('[role="main"]') || document.body;
     const anchors = [...main.querySelectorAll('a[href]')];
     const found = new Map();
@@ -92,12 +102,18 @@
       if (!found.has(friend.profileUrl)) found.set(friend.profileUrl, friend);
     }
 
-    const state = await loadState();
-    const existing = new Map(state.friends.map((friend) => [friend.id, friend]));
+    return found;
+  }
 
-    for (const [id, friend] of found) {
-      const merged = { ...existing.get(id), ...friend };
-      merged.protected = state.protectedIds.has(id) || Boolean(existing.get(id)?.protected);
+  async function mergeAndStore(friendsMap) {
+    const state = await loadState();
+    const existing = new Map(state.friends.map((f) => [f.id, f]));
+
+    for (const [id, friend] of friendsMap) {
+      const prev = existing.get(id);
+      const merged = { ...prev, ...friend };
+      merged.protected = state.protectedIds.has(id) || Boolean(prev?.protected);
+      merged.selected = Boolean(prev?.selected);
       const evaluation = root.evaluateFriend(merged, state.settings);
       merged.status = evaluation.status;
       merged.inactiveScore = evaluation.score;
@@ -111,47 +127,235 @@
       [STORAGE_KEYS.FRIENDS]: result,
       [STORAGE_KEYS.SCAN_META]: {
         scannedAt: new Date().toISOString(),
-        loadedCount: found.size,
+        loadedCount: friendsMap.size,
         totalStored: result.length,
         sourceUrl: location.href
       }
     });
 
+    return result.length;
+  }
+
+  async function scanLoadedFriends() {
+    if (!utils.isFriendsPage()) {
+      return { ok: false, error: "Open your Facebook Friends page first." };
+    }
+
+    await chrome.runtime.sendMessage({ type: "REGISTER_FRIENDS_TAB" }).catch(() => {});
+
+    const allDOM = scanAllDOM();
+    scannedIds.clear();
+    for (const id of allDOM.keys()) scannedIds.add(id);
+
+    const totalStored = await mergeAndStore(allDOM);
+
     return {
       ok: true,
-      loadedCount: found.size,
-      totalStored: result.length
+      loadedCount: allDOM.size,
+      totalStored
     };
   }
 
-  function startWatch() {
-    if (watchObserver) return;
-    watchEnabled = true;
-    let debounce;
-    watchObserver = new MutationObserver(() => {
-      if (!watchEnabled) return;
-      clearTimeout(debounce);
-      debounce = setTimeout(() => scanLoadedFriends().catch(() => {}), 900);
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function getScrollContainer() {
+    const main = document.querySelector('[role="main"]');
+    if (!main) return null;
+    let el = main;
+    while (el && el !== document.documentElement) {
+      const style = getComputedStyle(el);
+      if (style.overflow === "auto" || style.overflow === "scroll" ||
+          style.overflowY === "auto" || style.overflowY === "scroll") {
+        if (el.scrollHeight > el.clientHeight + 50) return el;
+      }
+      el = el.parentElement;
+    }
+    return document.documentElement;
+  }
+
+  function getDisplayedFriendCount() {
+    const body = document.body?.innerText || "";
+    const match = body.match(/(\d[\d,]*)\s+friends/i);
+    if (match) {
+      const n = parseInt(match[1].replace(/,/g, ""), 10);
+      if (Number.isFinite(n) && n > 0 && n < 50000) return n;
+    }
+    return null;
+  }
+
+  function clickLoadMore() {
+    const buttons = [...document.querySelectorAll('button, [role="button"]')];
+    for (const btn of buttons) {
+      const text = safeText(btn).toLowerCase();
+      if (text === "see more friends" || text === "see more" || text === "load more" ||
+          text === "view more" || text === "show more") {
+        btn.click();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async function broadcastProgress(progress) {
+    try {
+      await chrome.runtime.sendMessage({ type: "SCROLL_PROGRESS", ...progress });
+    } catch {}
+  }
+
+  async function autoScrollScan() {
+    if (!utils.isFriendsPage()) {
+      return { ok: false, error: "Open your Facebook Friends page first." };
+    }
+
+    if (scrollActive) {
+      return { ok: false, error: "Scan already in progress." };
+    }
+
+    await chrome.runtime.sendMessage({ type: "REGISTER_FRIENDS_TAB" }).catch(() => {});
+
+    const state = await loadState();
+    const alreadyStored = new Set(state.friends.map((f) => f.id));
+    for (const id of alreadyStored) scannedIds.add(id);
+
+    scrollActive = true;
+    abortController = new AbortController();
+    const signal = abortController.signal;
+
+    const container = getScrollContainer();
+    if (!container) {
+      scrollActive = false;
+      return { ok: false, error: "Cannot find scrollable container on this page." };
+    }
+
+    const displayedTotal = getDisplayedFriendCount();
+
+    await broadcastProgress({
+      phase: "scanning",
+      message: displayedTotal
+        ? `Found ${displayedTotal} friends on page. Scanning...`
+        : "Starting auto-scan...",
+      scanned: scannedIds.size,
+      displayedTotal,
+      newSinceLast: 0
     });
-    watchObserver.observe(document.documentElement, { childList: true, subtree: true });
+
+    let previousCount = scannedIds.size;
+    let stableRounds = 0;
+    const MAX_STABLE_ROUNDS = 8;
+    let round = 0;
+    const MAX_ROUNDS = 600;
+
+    try {
+      while (round < MAX_ROUNDS) {
+        if (signal.aborted) break;
+        round++;
+
+        clickLoadMore();
+        await sleep(400);
+        if (signal.aborted) break;
+
+        for (let sub = 0; sub < 3; sub++) {
+          if (signal.aborted) break;
+          container.scrollTop = container.scrollHeight;
+          document.documentElement.scrollTop = document.documentElement.scrollHeight;
+          await sleep(800);
+        }
+
+        if (signal.aborted) break;
+        await sleep(1500);
+        if (signal.aborted) break;
+
+        const newFriends = scanDOMForNew();
+        for (const [id, friend] of newFriends) {
+          scannedIds.set ? scannedIds.add(id) : null;
+        }
+
+        const currentCount = scannedIds.size;
+
+        if (newFriends.size > 0) {
+          const merged = new Map();
+          for (const [id, friend] of newFriends) merged.set(id, friend);
+          await mergeAndStore(merged);
+        }
+
+        const newSinceLast = Math.max(0, currentCount - previousCount);
+
+        let msg;
+        if (displayedTotal && currentCount >= displayedTotal) {
+          msg = `Done! Found all ${currentCount} friends.`;
+        } else if (newSinceLast > 0) {
+          msg = `Found ${newFriends.size} new friends... (${currentCount}${displayedTotal ? `/${displayedTotal}` : ""} total)`;
+        } else {
+          msg = `Looking for more... (${currentCount}${displayedTotal ? `/${displayedTotal}` : ""} so far)`;
+        }
+
+        await broadcastProgress({
+          phase: "scanning",
+          message: msg,
+          scanned: currentCount,
+          displayedTotal,
+          newSinceLast,
+          round
+        });
+
+        if (displayedTotal && currentCount >= displayedTotal) break;
+
+        if (currentCount === previousCount) {
+          stableRounds++;
+        } else {
+          stableRounds = 0;
+        }
+
+        previousCount = currentCount;
+
+        if (stableRounds >= MAX_STABLE_ROUNDS) break;
+      }
+    } catch (err) {
+      if (err.name === "AbortError") {
+        scrollActive = false;
+        return { ok: false, error: "Scan was cancelled." };
+      }
+    }
+
+    const finalAll = scanAllDOM();
+    for (const [id] of finalAll) scannedIds.add(id);
+
+    const totalStored = await mergeAndStore(finalAll);
+
+    await broadcastProgress({
+      phase: "complete",
+      message: `Scan complete. ${scannedIds.size} friends found, ${totalStored} stored.`,
+      scanned: scannedIds.size,
+      displayedTotal,
+      newSinceLast: 0
+    });
+
+    scrollActive = false;
+    abortController = null;
+
+    return {
+      ok: true,
+      loadedCount: scannedIds.size,
+      totalStored,
+      displayedTotal,
+      rounds: round
+    };
   }
 
-  function stopWatch() {
-    watchEnabled = false;
-    watchObserver?.disconnect();
-    watchObserver = null;
-  }
-
-  function normalize(url) {
-    return utils.normalizeProfileUrl(url);
+  function cancelAutoScroll() {
+    if (abortController) abortController.abort();
+    scrollActive = false;
+    return { ok: true };
   }
 
   function findFriendCardByUrl(profileUrl) {
-    const target = normalize(profileUrl);
+    const target = utils.normalizeProfileUrl(profileUrl);
     if (!target) return null;
     const anchors = [...document.querySelectorAll('a[href]')];
     for (const anchor of anchors) {
-      if (normalize(anchor.href) === target) return smallestUsefulCard(anchor);
+      if (utils.normalizeProfileUrl(anchor.href) === target) return smallestUsefulCard(anchor);
     }
     return null;
   }
@@ -176,7 +380,7 @@
     if (utils.isSecurityOrChallengeVisible()) return { ok: false, code: "SECURITY", error: "Facebook security or rate-limit UI is visible. Processing stopped." };
 
     const card = findFriendCardByUrl(profileUrl);
-    if (!card) return { ok: false, code: "NOT_LOADED", error: "This friend is not currently loaded on the page. Scroll until the card is visible and try again." };
+    if (!card) return { ok: false, code: "NOT_LOADED", error: "This friend is not currently loaded on the page." };
 
     const cardText = safeText(card);
     if (utils.textHasActiveNow(cardText) || utils.textHasRecentlyActive(cardText) || friendSnapshot.activeNow || friendSnapshot.recentlyActive) {
@@ -200,7 +404,7 @@
       return null;
     });
 
-    if (!unfriendAction) return { ok: false, code: "UNFRIEND_NOT_FOUND", error: "Unfriend action was not found. Facebook may have changed its layout." };
+    if (!unfriendAction) return { ok: false, code: "UNFRIEND_NOT_FOUND", error: "Unfriend action was not found." };
     if (utils.isSecurityOrChallengeVisible()) return { ok: false, code: "SECURITY", error: "Facebook security UI appeared. Processing stopped." };
 
     unfriendAction.click();
@@ -215,7 +419,6 @@
     }, 2200);
 
     if (!confirm) {
-      // Some Facebook variants remove immediately after choosing Unfriend.
       return { ok: true, uncertain: true, message: "Unfriend action was clicked; no confirmation dialog appeared." };
     }
 
@@ -230,15 +433,19 @@
       return true;
     }
 
-    if (message?.type === "START_WATCH") {
-      startWatch();
+    if (message?.type === "AUTO_SCROLL_SCAN") {
+      autoScrollScan().then(sendResponse).catch((error) => sendResponse({ ok: false, error: error.message }));
+      return true;
+    }
+
+    if (message?.type === "CANCEL_AUTO_SCROLL") {
+      cancelAutoScroll();
       sendResponse({ ok: true });
       return false;
     }
 
-    if (message?.type === "STOP_WATCH") {
-      stopWatch();
-      sendResponse({ ok: true });
+    if (message?.type === "SCROLL_STATUS") {
+      sendResponse({ active: scrollActive });
       return false;
     }
 
@@ -252,5 +459,11 @@
 
   if (utils.isFriendsPage()) {
     chrome.runtime.sendMessage({ type: "REGISTER_FRIENDS_TAB" }).catch(() => {});
+
+    setTimeout(() => {
+      if (!scrollActive) {
+        autoScrollScan().catch(() => {});
+      }
+    }, 2000);
   }
 })();

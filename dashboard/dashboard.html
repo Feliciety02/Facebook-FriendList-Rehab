@@ -3,126 +3,203 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>FriendList Rehab</title>
+  <title>FriendList Rehab \u2014 Dashboard</title>
   <link rel="stylesheet" href="dashboard.css">
 </head>
 <body>
-  <header class="fb-header">
-    <div class="brand-group">
-      <div class="brand-mark">FR</div>
-      <div class="brand-name">FriendList Rehab</div>
-    </div>
-    <div class="header-search">
-      <span>⌕</span>
-      <input id="searchInput" type="search" placeholder="Search friends">
-    </div>
-    <div class="header-actions">
-      <span class="pill" id="dryRunPill">Dry Run ON</span>
-      <button id="refreshButton" class="icon-button" title="Refresh">↻</button>
-    </div>
-  </header>
-
-  <div class="page-grid">
-    <aside class="sidebar">
-      <div class="sidebar-title">Friend review</div>
-      <nav id="navTabs">
-        <button data-tab="overview" class="nav-item active"><span>⌂</span> Overview</button>
-        <button data-tab="LIKELY_INACTIVE" class="nav-item"><span>◷</span> Likely Inactive</button>
-        <button data-tab="REVIEW" class="nav-item"><span>?</span> Needs Review</button>
-        <button data-tab="KEEP" class="nav-item"><span>✓</span> Keep</button>
-        <button data-tab="PROTECTED" class="nav-item"><span>♢</span> Protected</button>
-        <button data-tab="history" class="nav-item"><span>↺</span> History</button>
-        <button data-tab="settings" class="nav-item"><span>⚙</span> Settings</button>
-      </nav>
-      <div class="privacy-note">
-        <b>Private by design</b>
-        <p>Friend data stays in Chrome storage on this browser.</p>
+  <div class="app">
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="brand-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <span class="brand-text">FriendList Rehab</span>
       </div>
-    </aside>
-
-    <main class="content">
-      <section id="overviewPanel">
-        <div class="hero-card">
-          <div>
-            <p class="eyebrow">FRIEND LIST HEALTH</p>
-            <h1>Clean up without losing the real ones.</h1>
-            <p>FriendList Rehab only uses signals currently visible to you. Recent activity always overrides inactivity scoring.</p>
-          </div>
-          <button id="scanAgainButton" class="primary-btn">Scan loaded friends</button>
+      <div class="topbar-center">
+        <div class="search-bar">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input id="searchInput" type="search" placeholder="Search friends...">
         </div>
-
-        <div class="summary-grid">
-          <article class="summary-card"><span class="summary-icon blue">◎</span><div><b id="sumTotal">0</b><small>Friends scanned</small></div></article>
-          <article class="summary-card"><span class="summary-icon green">✓</span><div><b id="sumKeep">0</b><small>Keep</small></div></article>
-          <article class="summary-card"><span class="summary-icon amber">?</span><div><b id="sumReview">0</b><small>Needs review</small></div></article>
-          <article class="summary-card"><span class="summary-icon red">◷</span><div><b id="sumInactive">0</b><small>Likely inactive</small></div></article>
+      </div>
+      <div class="topbar-right">
+        <div class="xp-badge" id="xpBadge">
+          <span id="xpLevel">Lvl 1</span>
+          <span id="xpText">0 XP</span>
         </div>
+        <span class="pill" id="dryPill">Dry Run</span>
+      </div>
+    </header>
 
-        <div class="panel-card">
-          <div class="panel-heading">
-            <div><h2>Review queue</h2><p>Filter, sort, protect, and review before any removal action.</p></div>
-            <div class="controls">
-              <select id="statusFilter">
-                <option value="ALL">All statuses</option>
-                <option value="LIKELY_INACTIVE">Likely inactive</option>
-                <option value="REVIEW">Needs review</option>
-                <option value="KEEP">Keep</option>
-                <option value="PROTECTED">Protected</option>
-              </select>
-              <select id="sortSelect">
-                <option value="score">Highest inactive score</option>
-                <option value="mutuals">Fewest mutual friends</option>
-                <option value="name">Name</option>
-                <option value="recent">Recently scanned</option>
-              </select>
+    <div class="layout">
+      <aside class="sidebar">
+        <nav id="navTabs">
+          <button data-tab="overview" class="nav active">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            Overview
+          </button>
+          <button data-tab="LIKELY_INACTIVE" class="nav">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Inactive
+          </button>
+          <button data-tab="REVIEW" class="nav">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            Review
+          </button>
+          <button data-tab="KEEP" class="nav">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            Keep
+          </button>
+          <button data-tab="PROTECTED" class="nav">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            Protected
+          </button>
+          <div class="nav-divider"></div>
+          <button data-tab="settings" class="nav">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            Settings
+          </button>
+          <button data-tab="history" class="nav">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+            History
+          </button>
+        </nav>
+        <div class="sidebar-footer">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          <span>All data stays in your browser.</span>
+        </div>
+      </aside>
+
+      <main class="content">
+        <!-- OVERVIEW -->
+        <section id="overviewPanel">
+          <div class="hero-row">
+            <div class="hero-card">
+              <div class="ring-wrap large">
+                <svg class="ring" viewBox="0 0 100 100">
+                  <circle class="ring-bg" cx="50" cy="50" r="42"/>
+                  <circle class="ring-fill" id="bigRing" cx="50" cy="50" r="42"/>
+                </svg>
+                <div class="ring-center">
+                  <span class="ring-number" id="sumTotal">0</span>
+                  <span class="ring-label">friends</span>
+                </div>
+              </div>
+              <div class="hero-info">
+                <p class="eyebrow">FRIEND LIST HEALTH</p>
+                <h1>Review your list</h1>
+                <p class="sub">Every friend scored by visible activity signals. You stay in control.</p>
+              </div>
+              <button class="action-btn primary" id="scanBtn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                Scan
+              </button>
             </div>
           </div>
 
-          <div class="bulk-bar">
-            <div><b id="selectedCount">0 selected</b><span id="bulkHint"> Protected and recent friends are excluded.</span></div>
-            <div>
-              <button id="selectInactiveButton" class="secondary-btn">Select likely inactive</button>
-              <button id="reviewSelectedButton" class="primary-btn" disabled>Review selected</button>
-            </div>
+          <div class="mini-stats">
+            <div class="mini-card green"><span class="mini-num" id="sumKeep">0</span><span class="mini-label">Keep</span></div>
+            <div class="mini-card amber"><span class="mini-num" id="sumReview">0</span><span class="mini-label">Review</span></div>
+            <div class="mini-card red"><span class="mini-num" id="sumInactive">0</span><span class="mini-label">Inactive</span></div>
+            <div class="mini-card blue"><span class="mini-num" id="sumProtected">0</span><span class="mini-label">Protected</span></div>
           </div>
 
-          <div id="friendList" class="friend-list"></div>
-          <div id="emptyState" class="empty-state" hidden>No friends match this view yet.</div>
-        </div>
-      </section>
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Review queue</h2>
+              <div class="controls">
+                <select id="statusFilter">
+                  <option value="ALL">All</option>
+                  <option value="LIKELY_INACTIVE">Inactive</option>
+                  <option value="REVIEW">Review</option>
+                  <option value="KEEP">Keep</option>
+                  <option value="PROTECTED">Protected</option>
+                </select>
+                <select id="sortSelect">
+                  <option value="score">Score</option>
+                  <option value="mutuals">Mutuals</option>
+                  <option value="name">Name</option>
+                  <option value="recent">Recent</option>
+                </select>
+              </div>
+            </div>
 
-      <section id="settingsPanel" class="panel-card hidden">
-        <div class="panel-heading"><div><h2>Settings</h2><p>Safety-first defaults are enabled.</p></div></div>
-        <div class="settings-grid">
-          <label>Inactive threshold<select id="inactiveYears"><option value="1">1+ year</option><option value="2">2+ years</option><option value="3">3+ years</option><option value="5">5+ years</option></select></label>
-          <label>Maximum mutual friends<select id="maxMutualFriends"><option value="2">0–2</option><option value="5">0–5</option><option value="10">0–10</option><option value="9999">Any</option></select></label>
-          <label>Inactive score threshold<input id="inactiveScoreThreshold" type="number" min="4" max="20"></label>
-          <label class="switch-line"><span><b>Protect recent activity</b><small>Never select Active Now / Recently Active.</small></span><input id="protectRecentActivity" type="checkbox"></label>
-          <label class="switch-line"><span><b>Protect uncertain profiles</b><small>Unknown/private activity stays in Review.</small></span><input id="privateProfileProtection" type="checkbox"></label>
-          <label class="switch-line"><span><b>Dry Run</b><small>Recommended. Disables removal actions.</small></span><input id="dryRun" type="checkbox"></label>
-        </div>
-        <div class="settings-actions"><button id="resetSettings" class="secondary-btn">Reset defaults</button><button id="saveSettings" class="primary-btn">Save settings</button></div>
-      </section>
+            <div class="bulk-bar">
+              <span id="selectedCount">0 selected</span>
+              <div class="bulk-actions">
+                <button class="btn-sm ghost" id="selectAllBtn">Select inactive</button>
+                <button class="btn-sm primary" id="reviewBtn" disabled>Review selected</button>
+              </div>
+            </div>
 
-      <section id="historyPanel" class="panel-card hidden">
-        <div class="panel-heading"><div><h2>History</h2><p>Local decisions from this browser only.</p></div><button id="clearHistory" class="secondary-btn">Clear history</button></div>
-        <div id="historyList" class="history-list"></div>
-      </section>
-    </main>
+            <div id="friendList" class="friend-grid"></div>
+            <div id="emptyState" class="empty-state hidden">No friends here yet.</div>
+          </div>
+        </section>
+
+        <!-- SETTINGS -->
+        <section id="settingsPanel" class="panel hidden">
+          <div class="panel-head"><h2>Settings</h2></div>
+          <div class="settings-form">
+            <label class="field">
+              <span class="field-label">Inactive threshold</span>
+              <select id="inactiveYears"><option value="1">1+ year</option><option value="2">2+ years</option><option value="3">3+ years</option><option value="5">5+ years</option></select>
+            </label>
+            <label class="field">
+              <span class="field-label">Max mutual friends</span>
+              <select id="maxMutualFriends"><option value="2">0\u20132</option><option value="5">0\u20135</option><option value="10">0\u201310</option><option value="9999">Any</option></select>
+            </label>
+            <label class="field">
+              <span class="field-label">Score threshold</span>
+              <input id="inactiveScoreThreshold" type="number" min="4" max="20">
+            </label>
+            <label class="switch-field">
+              <div><b>Protect recent activity</b><small>Never flag active friends</small></div>
+              <input id="protectRecentActivity" type="checkbox">
+            </label>
+            <label class="switch-field">
+              <div><b>Protect uncertain profiles</b><small>Unknown stays in Review</small></div>
+              <input id="privateProfileProtection" type="checkbox">
+            </label>
+            <label class="switch-field">
+              <div><b>Dry Run</b><small>Simulates removals only</small></div>
+              <input id="dryRun" type="checkbox">
+            </label>
+          </div>
+          <div class="settings-actions">
+            <button class="btn-sm ghost" id="resetBtn">Reset</button>
+            <button class="btn-sm primary" id="saveBtn">Save</button>
+          </div>
+        </section>
+
+        <!-- HISTORY -->
+        <section id="historyPanel" class="panel hidden">
+          <div class="panel-head">
+            <h2>History</h2>
+            <button class="btn-sm ghost" id="clearHistoryBtn">Clear</button>
+          </div>
+          <div id="historyList" class="history-list"></div>
+        </section>
+      </main>
+    </div>
   </div>
 
   <dialog id="reviewDialog">
     <form method="dialog" class="dialog-card">
-      <div class="dialog-head"><div><p class="eyebrow">FINAL REVIEW</p><h2>Review selected friends</h2></div><button value="cancel" class="icon-button">×</button></div>
-      <p class="warning">Facebook activity information can be incomplete. Dry Run is ON by default and removal only works for friend cards currently loaded on your Friends page.</p>
+      <div class="dialog-head">
+        <div><p class="eyebrow">FINAL REVIEW</p><h2>Review selected</h2></div>
+        <button value="cancel" class="close-btn">&times;</button>
+      </div>
+      <p class="dialog-warning">Facebook activity signals can be incomplete. Dry Run is ON by default.</p>
       <div id="dialogList" class="dialog-list"></div>
       <div class="dialog-actions">
-        <button value="cancel" class="secondary-btn">Cancel</button>
-        <button id="processButton" value="default" class="danger-btn" type="button">Process selected</button>
+        <button value="cancel" class="btn-sm ghost">Cancel</button>
+        <button id="processBtn" class="btn-sm danger" type="button">Process</button>
       </div>
       <div id="processStatus" class="process-status"></div>
     </form>
   </dialog>
+
+  <canvas id="confettiCanvas" class="confetti-canvas"></canvas>
 
   <script src="../lib/constants.js"></script>
   <script src="../lib/scoring.js"></script>

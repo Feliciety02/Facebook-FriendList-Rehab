@@ -1,3 +1,74 @@
+(() => {
+  const COLORS = ['#0866ff','#22c55e','#f59e0b','#ef4444','#a855f7','#ec4899'];
+  const canvas = document.getElementById('confettiCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  let particles = [];
+  let raf = null;
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  function createParticle() {
+    return {
+      x: Math.random() * canvas.width,
+      y: -10,
+      w: Math.random() * 6 + 4,
+      h: Math.random() * 4 + 3,
+      color: COLORS[Math.floor(Math.random() * COLORS.length)],
+      vx: (Math.random() - .5) * 3,
+      vy: Math.random() * 3 + 2,
+      rotation: Math.random() * 360,
+      spin: (Math.random() - .5) * 8,
+      opacity: 1
+    };
+  }
+
+  function animate() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    particles = particles.filter((p) => p.opacity > 0);
+    for (const p of particles) {
+      p.x += p.vx;
+      p.vy += 0.05;
+      p.y += p.vy;
+      p.rotation += p.spin;
+      if (p.y > canvas.height * .85) p.opacity -= 0.02;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rotation * Math.PI / 180);
+      ctx.globalAlpha = Math.max(0, p.opacity);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      ctx.restore();
+    }
+    if (particles.length) raf = requestAnimationFrame(animate);
+  }
+
+  window.fireConfetti = function(count = 80) {
+    for (let i = 0; i < count; i++) particles.push(createParticle());
+    if (!raf) animate();
+    setTimeout(() => { cancelAnimationFrame(raf); raf = null; }, 3000);
+  };
+})();
+
+function showAchievement(icon, text) {
+  let toast = document.querySelector('.achievement-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.className = 'achievement-toast';
+    document.body.appendChild(toast);
+  }
+  toast.innerHTML = `${icon} ${text}`;
+  toast.classList.remove('show');
+  void toast.offsetWidth;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 3000);
+}
+
 const app = globalThis.FriendListRehab;
 const { STORAGE_KEYS, DEFAULT_SETTINGS, STATUS } = app;
 let friends = [];
@@ -5,50 +76,71 @@ let settings = { ...DEFAULT_SETTINGS };
 let history = [];
 let activeTab = "overview";
 
+const XP_PER_REVIEW = 25;
+const XP_PER_UNFRIEND = 50;
+const LEVEL_XP = [0, 50, 150, 350, 600, 1000, 1600, 2500, 4000, 6000, 9999999];
+
+function getLevel(xp) {
+  let lvl = 1;
+  for (let i = 1; i < LEVEL_XP.length; i++) {
+    if (xp >= LEVEL_XP[i]) lvl = i + 1;
+    else break;
+  }
+  return Math.min(lvl, 10);
+}
+
+async function getXp() {
+  const d = await chrome.storage.local.get(["friendlistRehabXp"]);
+  return d.friendlistRehabXp || 0;
+}
+
+async function addXp(amount) {
+  const current = await getXp();
+  const newTotal = current + amount;
+  await chrome.storage.local.set({ friendlistRehabXp: newTotal });
+  renderXp(newTotal);
+  return newTotal;
+}
+
+function renderXp(xp) {
+  const lvl = getLevel(xp);
+  document.getElementById("xpLevel").textContent = `Lvl ${lvl}`;
+  document.getElementById("xpText").textContent = `${xp} XP`;
+  const badge = document.getElementById("xpBadge");
+  badge.classList.remove("pop");
+  void badge.offsetWidth;
+  badge.classList.add("pop");
+}
+
 const $ = (id) => document.getElementById(id);
 
-function escText(value) {
-  return String(value ?? "");
+function statusLabel(s) {
+  return ({ [STATUS.KEEP]: "Keep", [STATUS.REVIEW]: "Review", [STATUS.LIKELY_INACTIVE]: "Inactive", [STATUS.PROTECTED]: "Protected" })[s] || s;
 }
 
-function statusLabel(status) {
-  return ({
-    [STATUS.KEEP]: "Keep",
-    [STATUS.REVIEW]: "Needs Review",
-    [STATUS.LIKELY_INACTIVE]: "Likely Inactive",
-    [STATUS.PROTECTED]: "Protected"
-  })[status] || status;
-}
-
-function statusClass(status) {
-  return ({
-    [STATUS.KEEP]: "keep",
-    [STATUS.REVIEW]: "review",
-    [STATUS.LIKELY_INACTIVE]: "inactive",
-    [STATUS.PROTECTED]: "protected"
-  })[status] || "review";
+function statusClass(s) {
+  return ({ [STATUS.KEEP]: "keep", [STATUS.REVIEW]: "review", [STATUS.LIKELY_INACTIVE]: "inactive", [STATUS.PROTECTED]: "protected" })[s] || "review";
 }
 
 async function load() {
   const data = await chrome.storage.local.get([
-    STORAGE_KEYS.FRIENDS,
-    STORAGE_KEYS.SETTINGS,
-    STORAGE_KEYS.HISTORY
+    STORAGE_KEYS.FRIENDS, STORAGE_KEYS.SETTINGS, STORAGE_KEYS.HISTORY
   ]);
   friends = data[STORAGE_KEYS.FRIENDS] || [];
   settings = { ...DEFAULT_SETTINGS, ...(data[STORAGE_KEYS.SETTINGS] || {}) };
   history = data[STORAGE_KEYS.HISTORY] || [];
   applySettingsToForm();
   render();
+  renderXp(await getXp());
 }
 
 function counts() {
   return friends.reduce((acc, f) => {
-    acc.total += 1;
-    if (f.status === STATUS.KEEP) acc.keep += 1;
-    if (f.status === STATUS.REVIEW) acc.review += 1;
-    if (f.status === STATUS.LIKELY_INACTIVE) acc.inactive += 1;
-    if (f.status === STATUS.PROTECTED) acc.protected += 1;
+    acc.total++;
+    if (f.status === STATUS.KEEP) acc.keep++;
+    if (f.status === STATUS.REVIEW) acc.review++;
+    if (f.status === STATUS.LIKELY_INACTIVE) acc.inactive++;
+    if (f.status === STATUS.PROTECTED) acc.protected++;
     return acc;
   }, { total: 0, keep: 0, review: 0, inactive: 0, protected: 0 });
 }
@@ -59,18 +151,22 @@ function renderSummary() {
   $("sumKeep").textContent = c.keep;
   $("sumReview").textContent = c.review;
   $("sumInactive").textContent = c.inactive;
-  $("dryRunPill").textContent = `Dry Run ${settings.dryRun ? "ON" : "OFF"}`;
+  $("sumProtected").textContent = c.protected;
+  $("dryPill").textContent = `Dry Run ${settings.dryRun ? "ON" : "OFF"}`;
+
+  const circumference = 2 * Math.PI * 42;
+  const offset = circumference - (Math.min(c.total / 500, 1) * circumference);
+  $("bigRing").style.strokeDashoffset = offset;
 }
 
 function filteredFriends() {
   const query = $("searchInput").value.trim().toLowerCase();
   const filter = activeTab !== "overview" && !["settings", "history"].includes(activeTab)
-    ? activeTab
-    : $("statusFilter").value;
-  let result = friends.filter((friend) => {
-    const matchesQuery = !query || friend.name.toLowerCase().includes(query);
-    const matchesStatus = filter === "ALL" || filter === "overview" || friend.status === filter;
-    return matchesQuery && matchesStatus;
+    ? activeTab : $("statusFilter").value;
+  let result = friends.filter((f) => {
+    const matchQ = !query || f.name.toLowerCase().includes(query);
+    const matchS = filter === "ALL" || filter === "overview" || f.status === filter;
+    return matchQ && matchS;
   });
 
   const sort = $("sortSelect").value;
@@ -99,35 +195,43 @@ function makeAvatar(friend) {
 function makeFriendCard(friend) {
   const card = document.createElement("article");
   card.className = `friend-card${friend.selected ? " selected" : ""}`;
-  card.dataset.id = friend.id;
-  card.appendChild(makeAvatar(friend));
 
-  const main = document.createElement("div");
-  main.className = "friend-main";
+  const avatar = makeAvatar(friend);
+  const info = document.createElement("div");
+  info.className = "friend-info";
 
   const top = document.createElement("div");
-  top.className = "friend-top";
-  const info = document.createElement("div");
+  top.style.display = "flex";
+  top.style.justifyContent = "space-between";
+  top.style.alignItems = "flex-start";
+  top.style.gap = "6px";
+
   const name = document.createElement("h3");
   name.className = "friend-name";
   name.textContent = friend.name;
-  const meta = document.createElement("div");
-  meta.className = "meta";
-  const mutual = Number.isFinite(friend.mutualFriends) ? `${friend.mutualFriends} mutual friend${friend.mutualFriends === 1 ? "" : "s"}` : "Mutual friends unknown";
-  const activity = friend.activeNow ? "Active now" : friend.recentlyActive ? "Recently active" : Number.isFinite(friend.lastVisibleActivityMonths) ? `${Math.round(friend.lastVisibleActivityMonths / 12 * 10) / 10} years since visible activity` : "Visible activity age unknown";
-  meta.textContent = `${mutual} · ${activity}`;
-  info.append(name, meta);
 
   const badge = document.createElement("span");
   badge.className = `badge ${statusClass(friend.status)}`;
   badge.textContent = statusLabel(friend.status);
-  top.append(info, badge);
+
+  top.append(name, badge);
+
+  const meta = document.createElement("div");
+  meta.className = "friend-meta";
+  const mutual = Number.isFinite(friend.mutualFriends) ? `${friend.mutualFriends} mutual` : "mutuals ?";
+
+  let activity = "activity ?";
+  if (friend.activeNow) activity = "active now";
+  else if (friend.recentlyActive) activity = "recently active";
+  else if (Number.isFinite(friend.lastVisibleActivityMonths)) activity = `${Math.round(friend.lastVisibleActivityMonths / 12 * 10) / 10}y since activity`;
+
+  meta.textContent = `${mutual} \u00b7 ${activity}`;
 
   const reasons = document.createElement("ul");
   reasons.className = "reason-list";
-  for (const reason of (friend.reasons || []).slice(0, 3)) {
+  for (const reason of (friend.reasons || []).slice(0, 2)) {
     const li = document.createElement("li");
-    li.textContent = `• ${reason}`;
+    li.textContent = `\u2022 ${reason}`;
     reasons.appendChild(li);
   }
 
@@ -136,28 +240,30 @@ function makeFriendCard(friend) {
 
   const selectBtn = document.createElement("button");
   selectBtn.className = `select-btn${friend.selected ? " selected" : ""}`;
-  selectBtn.textContent = friend.selected ? "Selected" : "Select";
+  selectBtn.textContent = friend.selected ? "\u2713" : "Select";
   const canSelect = friend.status === STATUS.LIKELY_INACTIVE && !friend.protected && !friend.protectedFromRemoval;
   selectBtn.disabled = !canSelect;
   selectBtn.addEventListener("click", () => toggleSelected(friend.id));
 
   const protectBtn = document.createElement("button");
-  protectBtn.textContent = friend.protected ? "Unprotect" : "Protect";
+  protectBtn.textContent = friend.protected ? "\ud83d\udd13" : "\ud83d\udee1\ufe0f";
+  protectBtn.title = friend.protected ? "Unprotect" : "Protect";
   protectBtn.addEventListener("click", () => toggleProtected(friend.id));
 
   const keepBtn = document.createElement("button");
-  keepBtn.textContent = "Keep";
+  keepBtn.textContent = "\u2714";
+  keepBtn.title = "Keep";
   keepBtn.addEventListener("click", () => markKeep(friend.id));
 
-  const profileLink = document.createElement("a");
-  profileLink.href = friend.profileUrl;
-  profileLink.target = "_blank";
-  profileLink.rel = "noreferrer";
-  profileLink.textContent = "View profile";
+  const link = document.createElement("a");
+  link.href = friend.profileUrl;
+  link.target = "_blank";
+  link.rel = "noreferrer";
+  link.textContent = "\u2197";
 
-  actions.append(selectBtn, keepBtn, protectBtn, profileLink);
-  main.append(top, reasons, actions);
-  card.appendChild(main);
+  actions.append(selectBtn, keepBtn, protectBtn, link);
+  info.append(top, meta, reasons, actions);
+  card.append(avatar, info);
   return card;
 }
 
@@ -165,40 +271,25 @@ function renderFriendList() {
   const list = $("friendList");
   list.replaceChildren();
   const data = filteredFriends();
-  $("emptyState").hidden = data.length !== 0;
-  for (const friend of data) list.appendChild(makeFriendCard(friend));
+  $("emptyState").classList.toggle("hidden", data.length !== 0);
+  for (const f of data) list.appendChild(makeFriendCard(f));
 
   const selected = friends.filter((f) => f.selected);
   $("selectedCount").textContent = `${selected.length} selected`;
-  $("reviewSelectedButton").disabled = selected.length === 0;
+  $("reviewBtn").disabled = selected.length === 0;
 }
 
 function renderHistory() {
   const list = $("historyList");
   list.replaceChildren();
   if (!history.length) {
-    const empty = document.createElement("div");
-    empty.className = "empty-state";
-    empty.textContent = "No history yet.";
-    list.appendChild(empty);
+    list.innerHTML = '<div class="empty-state">No history yet.</div>';
     return;
   }
-
   for (const item of [...history].reverse()) {
     const row = document.createElement("div");
     row.className = "history-row";
-    const who = document.createElement("div");
-    who.innerHTML = "";
-    const b = document.createElement("b");
-    b.textContent = item.name;
-    const s = document.createElement("small");
-    s.textContent = item.profileUrl || "";
-    who.append(b, document.createElement("br"), s);
-    const decision = document.createElement("div");
-    decision.textContent = item.decision;
-    const date = document.createElement("div");
-    date.textContent = new Date(item.at).toLocaleString();
-    row.append(who, decision, date);
+    row.innerHTML = `<div><b>${item.name}</b><br><small>${item.profileUrl || ""}</small></div><div>${item.decision}</div><small>${new Date(item.at).toLocaleString()}</small>`;
     list.appendChild(row);
   }
 }
@@ -207,7 +298,7 @@ function renderPanels() {
   $("settingsPanel").classList.toggle("hidden", activeTab !== "settings");
   $("historyPanel").classList.toggle("hidden", activeTab !== "history");
   $("overviewPanel").classList.toggle("hidden", ["settings", "history"].includes(activeTab));
-  document.querySelectorAll(".nav-item").forEach((btn) => btn.classList.toggle("active", btn.dataset.tab === activeTab));
+  document.querySelectorAll(".nav").forEach((btn) => btn.classList.toggle("active", btn.dataset.tab === activeTab));
   if (!["settings", "history"].includes(activeTab)) {
     $("statusFilter").value = activeTab === "overview" ? "ALL" : activeTab;
   }
@@ -230,42 +321,45 @@ async function addHistory(friend, decision) {
 }
 
 async function toggleSelected(id) {
-  const friend = friends.find((f) => f.id === id);
-  if (!friend || friend.protected || friend.protectedFromRemoval || friend.status !== STATUS.LIKELY_INACTIVE) return;
-  friend.selected = !friend.selected;
+  const f = friends.find((x) => x.id === id);
+  if (!f || f.protected || f.protectedFromRemoval || f.status !== STATUS.LIKELY_INACTIVE) return;
+  f.selected = !f.selected;
   await persistFriends();
   render();
 }
 
 async function toggleProtected(id) {
-  const friend = friends.find((f) => f.id === id);
-  if (!friend) return;
-  friend.protected = !friend.protected;
-  friend.selected = false;
-  const evaluation = app.evaluateFriend(friend, settings);
-  friend.status = evaluation.status;
-  friend.inactiveScore = evaluation.score;
-  friend.reasons = evaluation.reasons;
-  friend.protectedFromRemoval = evaluation.protectedFromRemoval;
+  const f = friends.find((x) => x.id === id);
+  if (!f) return;
+  f.protected = !f.protected;
+  f.selected = false;
+  const evaluation = app.evaluateFriend(f, settings);
+  f.status = evaluation.status;
+  f.inactiveScore = evaluation.score;
+  f.reasons = evaluation.reasons;
+  f.protectedFromRemoval = evaluation.protectedFromRemoval;
 
-  const protectedIds = friends.filter((f) => f.protected).map((f) => f.id);
   await chrome.storage.local.set({
     [STORAGE_KEYS.FRIENDS]: friends,
-    [STORAGE_KEYS.PROTECTED]: protectedIds
+    [STORAGE_KEYS.PROTECTED]: friends.filter((x) => x.protected).map((x) => x.id)
   });
-  await addHistory(friend, friend.protected ? "Protected" : "Unprotected");
+  await addHistory(f, f.protected ? "Protected" : "Unprotected");
+  if (f.protected) showAchievement("\ud83d\udee1\ufe0f", `${f.name} protected`);
   render();
 }
 
 async function markKeep(id) {
-  const friend = friends.find((f) => f.id === id);
-  if (!friend) return;
-  friend.selected = false;
-  friend.status = STATUS.KEEP;
-  friend.protectedFromRemoval = true;
-  friend.reasons = ["Kept manually"];
+  const f = friends.find((x) => x.id === id);
+  if (!f) return;
+  f.selected = false;
+  f.status = STATUS.KEEP;
+  f.protectedFromRemoval = true;
+  f.reasons = ["Kept manually"];
   await persistFriends();
-  await addHistory(friend, "Kept");
+  await addHistory(f, "Kept");
+  await addXp(XP_PER_REVIEW);
+  showAchievement("\u2705", `${f.name} kept \u2014 +${XP_PER_REVIEW} XP`);
+  if (typeof fireConfetti === "function") fireConfetti(30);
   render();
 }
 
@@ -274,79 +368,71 @@ function selectedFriends() {
 }
 
 function openReviewDialog() {
-  const selected = selectedFriends();
   const list = $("dialogList");
   list.replaceChildren();
-  for (const friend of selected) {
+  for (const f of selectedFriends()) {
     const row = document.createElement("div");
     row.className = "dialog-item";
-    const left = document.createElement("div");
-    const b = document.createElement("b");
-    b.textContent = friend.name;
-    const small = document.createElement("small");
-    small.textContent = `Score ${friend.inactiveScore || 0} · ${Number.isFinite(friend.mutualFriends) ? friend.mutualFriends + " mutual" : "mutuals unknown"}`;
-    left.append(b, document.createElement("br"), small);
-    const badge = document.createElement("span");
-    badge.className = "badge inactive";
-    badge.textContent = "Likely Inactive";
-    row.append(left, badge);
+    row.innerHTML = `<div><b>${f.name}</b><br><small>Score ${f.inactiveScore || 0} \u00b7 ${Number.isFinite(f.mutualFriends) ? f.mutualFriends + " mutual" : "mutuals ?"}</small></div><span class="badge inactive">Inactive</span>`;
     list.appendChild(row);
   }
   $("processStatus").textContent = settings.dryRun
-    ? "Dry Run is ON. Processing will simulate removals only."
-    : "Live mode is ON. Processing will use the loaded Friends-page cards one at a time.";
+    ? "Dry Run is ON. Simulating removals."
+    : "Live mode. Processing loaded cards one at a time.";
   $("reviewDialog").showModal();
 }
 
 async function processSelected() {
   const queue = selectedFriends();
   if (!queue.length) return;
-  $("processButton").disabled = true;
+  $("processBtn").disabled = true;
 
-  for (let i = 0; i < queue.length; i += 1) {
-    const friend = queue[i];
-    $("processStatus").textContent = `Processing ${i + 1} / ${queue.length}: ${friend.name}`;
+  let xpEarned = 0;
+
+  for (let i = 0; i < queue.length; i++) {
+    const f = queue[i];
+    $("processStatus").textContent = `${i + 1} / ${queue.length}: ${f.name}`;
 
     if (settings.dryRun) {
-      await new Promise((r) => setTimeout(r, 350));
-      await addHistory(friend, "Dry-run skipped");
+      await new Promise((r) => setTimeout(r, 300));
+      await addHistory(f, "Dry-run");
+      xpEarned += 10;
       continue;
     }
 
-    const response = await chrome.runtime.sendMessage({
+    const resp = await chrome.runtime.sendMessage({
       type: "SEND_TO_FRIENDS_TAB",
-      payload: { type: "ATTEMPT_UNFRIEND", profileUrl: friend.profileUrl, friend }
+      payload: { type: "ATTEMPT_UNFRIEND", profileUrl: f.profileUrl, friend: f }
     });
 
-    if (!response?.ok) {
-      $("processStatus").textContent = response?.error || "Could not reach the Facebook Friends tab.";
+    if (!resp?.ok) {
+      $("processStatus").textContent = resp?.error || "Could not reach Facebook tab.";
       break;
     }
 
-    const result = response.result;
+    const result = resp.result;
     if (!result?.ok) {
-      await addHistory(friend, result?.skipped ? "Skipped" : "Stopped");
-      $("processStatus").textContent = `${friend.name}: ${result?.error || "Stopped."}`;
+      await addHistory(f, result?.skipped ? "Skipped" : "Stopped");
+      $("processStatus").textContent = `${f.name}: ${result?.error || "Stopped."}`;
       break;
     }
 
-    friend.selected = false;
-    await addHistory(friend, "Removed");
+    f.selected = false;
+    await addHistory(f, "Removed");
+    xpEarned += XP_PER_UNFRIEND;
     await new Promise((r) => setTimeout(r, 4000));
   }
 
-  await persistFriends();
-  $("processButton").disabled = false;
-  render();
-}
-
-async function sendScan() {
-  const response = await chrome.runtime.sendMessage({ type: "SEND_TO_FRIENDS_TAB", payload: { type: "SCAN_LOADED_FRIENDS" } });
-  if (!response?.ok) {
-    alert(response?.error || "Open your Facebook Friends page, reload it once, and try again.");
-    return;
+  if (xpEarned > 0) {
+    await addXp(xpEarned);
+    showAchievement("\ud83c\udfc6", `+${xpEarned} XP earned!`);
+    if (typeof fireConfetti === "function") fireConfetti(120);
   }
-  await load();
+
+  await persistFriends();
+  $("processBtn").disabled = false;
+  $("reviewDialog").close();
+  render();
 }
 
 function applySettingsToForm() {
@@ -369,15 +455,15 @@ async function saveSettings() {
     dryRun: $("dryRun").checked
   };
 
-  friends = friends.map((friend) => {
-    const evaluation = app.evaluateFriend(friend, settings);
+  friends = friends.map((f) => {
+    const evaluation = app.evaluateFriend(f, settings);
     return {
-      ...friend,
+      ...f,
       status: evaluation.status,
       inactiveScore: evaluation.score,
       reasons: evaluation.reasons,
       protectedFromRemoval: evaluation.protectedFromRemoval,
-      selected: evaluation.protectedFromRemoval ? false : friend.selected
+      selected: evaluation.protectedFromRemoval ? false : f.selected
     };
   });
 
@@ -385,35 +471,31 @@ async function saveSettings() {
     [STORAGE_KEYS.SETTINGS]: settings,
     [STORAGE_KEYS.FRIENDS]: friends
   });
+  showAchievement("\u2699\ufe0f", "Settings saved");
   render();
 }
 
-$("navTabs").addEventListener("click", (event) => {
-  const button = event.target.closest("button[data-tab]");
-  if (!button) return;
-  activeTab = button.dataset.tab;
+$("navTabs").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-tab]");
+  if (!btn) return;
+  activeTab = btn.dataset.tab;
   render();
 });
+
 $("searchInput").addEventListener("input", renderFriendList);
 $("statusFilter").addEventListener("change", () => { activeTab = "overview"; render(); });
 $("sortSelect").addEventListener("change", renderFriendList);
-$("refreshButton").addEventListener("click", load);
-$("scanAgainButton").addEventListener("click", sendScan);
-$("selectInactiveButton").addEventListener("click", async () => {
-  friends.forEach((friend) => {
-    friend.selected = friend.status === STATUS.LIKELY_INACTIVE && !friend.protected && !friend.protectedFromRemoval;
-  });
+$("scanBtn").addEventListener("click", () => chrome.runtime.sendMessage({ type: "SEND_TO_FRIENDS_TAB", payload: { type: "SCAN_LOADED_FRIENDS" } }).then(() => load()));
+$("selectAllBtn").addEventListener("click", async () => {
+  friends.forEach((f) => { f.selected = f.status === STATUS.LIKELY_INACTIVE && !f.protected && !f.protectedFromRemoval; });
   await persistFriends();
   render();
 });
-$("reviewSelectedButton").addEventListener("click", openReviewDialog);
-$("processButton").addEventListener("click", processSelected);
-$("saveSettings").addEventListener("click", saveSettings);
-$("resetSettings").addEventListener("click", () => {
-  settings = { ...DEFAULT_SETTINGS };
-  applySettingsToForm();
-});
-$("clearHistory").addEventListener("click", async () => {
+$("reviewBtn").addEventListener("click", openReviewDialog);
+$("processBtn").addEventListener("click", processSelected);
+$("saveBtn").addEventListener("click", saveSettings);
+$("resetBtn").addEventListener("click", () => { settings = { ...DEFAULT_SETTINGS }; applySettingsToForm(); });
+$("clearHistoryBtn").addEventListener("click", async () => {
   history = [];
   await chrome.storage.local.set({ [STORAGE_KEYS.HISTORY]: [] });
   renderHistory();

@@ -32,6 +32,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
+  if (message?.type === "SCROLL_PROGRESS") {
+    chrome.storage.session.set({ scrollProgress: { ...message, timestamp: Date.now() } })
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
   if (message?.type === "SEND_TO_FRIENDS_TAB") {
     (async () => {
       const stored = await chrome.storage.session.get([SOURCE_TAB_KEY]);
