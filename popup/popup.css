@@ -24,9 +24,9 @@ body {
 
 .app {
   width: 340px;
-  min-height: 480px;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 /* ── Topbar ── */
@@ -91,18 +91,30 @@ body {
 }
 
 main {
-  flex: 1;
-  padding: 20px 16px 16px;
+  padding: 18px 16px 16px;
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.scan-ui {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
 }
 
 /* ── Hero Ring ── */
 .hero {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 16px;
+  padding: 0 4px 2px;
+}
+
+.hero-text {
+  flex: 1;
+  min-width: 0;
 }
 
 .ring-wrap {
@@ -178,7 +190,8 @@ main {
 /* ── Stat Pills ── */
 .stat-row {
   display: flex;
-  gap: 6px;
+  gap: 8px;
+  width: 100%;
 }
 
 .stat-pill {
@@ -301,6 +314,8 @@ main {
   cursor: pointer;
   transition: all .15s;
   font-family: var(--font);
+  width: 100%;
+  min-height: 44px;
 }
 
 .action-btn:active { transform: scale(.97); }
@@ -343,6 +358,7 @@ main {
   border-radius: 12px;
   cursor: pointer;
   transition: border-color .15s;
+  width: 100%;
 }
 
 .toggle:hover { border-color: #ccc; }

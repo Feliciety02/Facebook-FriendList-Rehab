@@ -168,6 +168,24 @@ button, input, select { font-family: var(--font); }
 
 .nav svg { flex-shrink: 0; }
 
+.nav-label { flex: 1; }
+
+.nav-count {
+  min-width: 24px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.nav.active .nav-count {
+  background: rgba(8,102,255,.12);
+  color: var(--accent);
+}
+
 .nav-divider {
   height: 1px;
   background: var(--border);
@@ -189,8 +207,9 @@ button, input, select { font-family: var(--font); }
 
 /* ── Content ── */
 .content {
-  padding: 24px;
-  max-width: 900px;
+  width: 100%;
+  max-width: 1200px;
+  padding: 28px 32px 40px;
 }
 
 /* ── Hero ── */
@@ -283,18 +302,28 @@ button, input, select { font-family: var(--font); }
 }
 
 .mini-card {
+  appearance: none;
+  color: var(--text);
+  font-family: var(--font);
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 14px;
   text-align: center;
   transition: transform .15s, box-shadow .15s;
-  cursor: default;
+  cursor: pointer;
 }
 
-.mini-card:hover {
+.mini-card:hover,
+.mini-card.active {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0,0,0,.05);
+  border-color: #cbd5e1;
+  box-shadow: 0 6px 18px rgba(15,23,42,.07);
+}
+
+.mini-card.active {
+  outline: 2px solid rgba(8,102,255,.12);
+  outline-offset: 1px;
 }
 
 .mini-num {
@@ -333,6 +362,13 @@ button, input, select { font-family: var(--font); }
 }
 
 .panel-head h2 { font-size: 17px; font-weight: 800; letter-spacing: -0.3px; }
+
+.panel-title p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
 
 .controls { display: flex; gap: 6px; }
 
@@ -443,7 +479,7 @@ button, input, select { font-family: var(--font); }
 /* ── Friend Grid ── */
 .friend-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
   gap: 10px;
 }
 
@@ -559,10 +595,36 @@ button, input, select { font-family: var(--font); }
 }
 
 .empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   text-align: center;
-  padding: 40px 20px;
+  padding: 38px 20px 34px;
   color: var(--muted);
   font-size: 13px;
+}
+
+.empty-icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 12px;
+  border-radius: 14px;
+  background: #f0f7ff;
+  color: var(--accent);
+}
+
+.empty-state h3 {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.empty-state p {
+  max-width: 360px;
+  margin: 6px 0 14px;
+  line-height: 1.5;
 }
 
 /* ── Settings ── */
@@ -719,6 +781,21 @@ dialog::backdrop { background: rgba(0,0,0,.4); backdrop-filter: blur(4px); }
   .sidebar nav { display: flex; gap: 4px; }
   .sidebar-footer { display: none; }
   .friend-grid { grid-template-columns: 1fr; }
+  .content { padding: 20px 16px 32px; }
+  .hero-card { gap: 16px; padding: 18px; }
+  .mini-stats { grid-template-columns: repeat(2, 1fr); }
+  .panel-head { align-items: flex-start; flex-direction: column; }
+}
+
+@media (max-width: 560px) {
+  .topbar-center { display: none; }
+  .topbar-right { margin-left: auto; }
+  .hero-card { align-items: flex-start; flex-wrap: wrap; }
+  .hero-card .action-btn { width: 100%; justify-content: center; }
+  .ring-wrap.large { width: 82px; height: 82px; }
+  .controls, .controls select { width: 100%; }
+  .controls select { flex: 1; }
+  .bulk-bar { align-items: flex-start; flex-direction: column; gap: 10px; }
 }
 
 /* ── Achievement Toast ── */

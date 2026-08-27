@@ -122,6 +122,12 @@ function statusClass(s) {
   return ({ [STATUS.KEEP]: "keep", [STATUS.REVIEW]: "review", [STATUS.LIKELY_INACTIVE]: "inactive", [STATUS.PROTECTED]: "protected" })[s] || "review";
 }
 
+function currentFilter() {
+  return activeTab !== "overview" && !["settings", "history"].includes(activeTab)
+    ? activeTab
+    : $("statusFilter").value;
+}
+
 async function load() {
   const data = await chrome.storage.local.get([
     STORAGE_KEYS.FRIENDS, STORAGE_KEYS.SETTINGS, STORAGE_KEYS.HISTORY
@@ -152,6 +158,11 @@ function renderSummary() {
   $("sumReview").textContent = c.review;
   $("sumInactive").textContent = c.inactive;
   $("sumProtected").textContent = c.protected;
+  $("navTotal").textContent = c.total;
+  $("navKeep").textContent = c.keep;
+  $("navReview").textContent = c.review;
+  $("navInactive").textContent = c.inactive;
+  $("navProtected").textContent = c.protected;
   $("dryPill").textContent = `Dry Run ${settings.dryRun ? "ON" : "OFF"}`;
 
   const circumference = 2 * Math.PI * 42;
@@ -161,8 +172,7 @@ function renderSummary() {
 
 function filteredFriends() {
   const query = $("searchInput").value.trim().toLowerCase();
-  const filter = activeTab !== "overview" && !["settings", "history"].includes(activeTab)
-    ? activeTab : $("statusFilter").value;
+  const filter = currentFilter();
   let result = friends.filter((f) => {
     const matchQ = !query || f.name.toLowerCase().includes(query);
     const matchS = filter === "ALL" || filter === "overview" || f.status === filter;
@@ -271,12 +281,64 @@ function renderFriendList() {
   const list = $("friendList");
   list.replaceChildren();
   const data = filteredFriends();
-  $("emptyState").classList.toggle("hidden", data.length !== 0);
+  const filter = currentFilter();
+  const query = $("searchInput").value.trim();
+  const c = counts();
+  const titles = {
+    ALL: "All friends",
+    KEEP: "Kept friends",
+    REVIEW: "Needs review",
+    LIKELY_INACTIVE: "Likely inactive",
+    PROTECTED: "Protected friends"
+  };
+  const emptyLabels = {
+    KEEP: "kept friends",
+    REVIEW: "friends waiting for review",
+    LIKELY_INACTIVE: "likely inactive friends",
+    PROTECTED: "protected friends"
+  };
+
+  $("queueTitle").textContent = titles[filter] || "Friend review";
+  $("queueSubtitle").textContent = query
+    ? `${data.length} result${data.length === 1 ? "" : "s"} for “${query}”`
+    : `Showing ${data.length} of ${friends.length} scanned friend${friends.length === 1 ? "" : "s"}.`;
+
+  const empty = $("emptyState");
+  empty.classList.toggle("hidden", data.length !== 0);
+  if (data.length === 0) {
+    const action = $("emptyAction");
+    if (friends.length === 0) {
+      $("emptyTitle").textContent = "No friends scanned yet";
+      $("emptyMessage").textContent = "Open your Facebook Friends page and start a scan to build your dashboard.";
+      action.textContent = "Start a scan";
+      action.dataset.action = "SCAN";
+    } else if (query) {
+      $("emptyTitle").textContent = "No matching friends";
+      $("emptyMessage").textContent = `Nothing matches “${query}” in this filter.`;
+      action.textContent = "Clear search";
+      action.dataset.action = "CLEAR_SEARCH";
+    } else if (filter === STATUS.KEEP && c.review > 0) {
+      $("emptyTitle").textContent = "No kept friends yet";
+      $("emptyMessage").textContent = `You have ${c.review} friend${c.review === 1 ? "" : "s"} waiting for review.`;
+      action.textContent = `Show ${c.review} to review`;
+      action.dataset.action = STATUS.REVIEW;
+    } else {
+      $("emptyTitle").textContent = `No ${emptyLabels[filter] || "matching friends"}`;
+      $("emptyMessage").textContent = "There are no friends in this category yet. Try viewing the full list.";
+      action.textContent = "Show all friends";
+      action.dataset.action = "ALL";
+    }
+  }
+
   for (const f of data) list.appendChild(makeFriendCard(f));
 
   const selected = friends.filter((f) => f.selected);
   $("selectedCount").textContent = `${selected.length} selected`;
   $("reviewBtn").disabled = selected.length === 0;
+  $("selectAllBtn").disabled = c.inactive === 0;
+  $("selectAllBtn").textContent = c.inactive > 0
+    ? `Select inactive (${c.inactive})`
+    : "No inactive friends";
 }
 
 function renderHistory() {
@@ -302,6 +364,10 @@ function renderPanels() {
   if (!["settings", "history"].includes(activeTab)) {
     $("statusFilter").value = activeTab === "overview" ? "ALL" : activeTab;
   }
+  const filter = currentFilter();
+  document.querySelectorAll(".mini-card[data-status]").forEach((card) => {
+    card.classList.toggle("active", card.dataset.status === filter);
+  });
 }
 
 function render() {
@@ -483,8 +549,31 @@ $("navTabs").addEventListener("click", (e) => {
 });
 
 $("searchInput").addEventListener("input", renderFriendList);
-$("statusFilter").addEventListener("change", () => { activeTab = "overview"; render(); });
+$("statusFilter").addEventListener("change", () => {
+  activeTab = $("statusFilter").value === "ALL" ? "overview" : $("statusFilter").value;
+  render();
+});
 $("sortSelect").addEventListener("change", renderFriendList);
+document.querySelector(".mini-stats").addEventListener("click", (e) => {
+  const card = e.target.closest("button[data-status]");
+  if (!card) return;
+  activeTab = card.dataset.status;
+  render();
+});
+$("emptyAction").addEventListener("click", () => {
+  const action = $("emptyAction").dataset.action;
+  if (action === "SCAN") {
+    $("scanBtn").click();
+    return;
+  }
+  if (action === "CLEAR_SEARCH") {
+    $("searchInput").value = "";
+    renderFriendList();
+    return;
+  }
+  activeTab = action === "ALL" ? "overview" : action;
+  render();
+});
 $("scanBtn").addEventListener("click", () => chrome.runtime.sendMessage({ type: "SEND_TO_FRIENDS_TAB", payload: { type: "SCAN_LOADED_FRIENDS" } }).then(() => load()));
 $("selectAllBtn").addEventListener("click", async () => {
   friends.forEach((f) => { f.selected = f.status === STATUS.LIKELY_INACTIVE && !f.protected && !f.protectedFromRemoval; });
