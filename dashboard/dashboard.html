@@ -35,23 +35,23 @@
         <nav id="navTabs">
           <button data-tab="overview" class="nav active">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-            Overview
+            <span class="nav-label">Overview</span><span class="nav-count" id="navTotal">0</span>
           </button>
           <button data-tab="LIKELY_INACTIVE" class="nav">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            Inactive
+            <span class="nav-label">Inactive</span><span class="nav-count" id="navInactive">0</span>
           </button>
           <button data-tab="REVIEW" class="nav">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-            Review
+            <span class="nav-label">Review</span><span class="nav-count" id="navReview">0</span>
           </button>
           <button data-tab="KEEP" class="nav">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-            Keep
+            <span class="nav-label">Keep</span><span class="nav-count" id="navKeep">0</span>
           </button>
           <button data-tab="PROTECTED" class="nav">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-            Protected
+            <span class="nav-label">Protected</span><span class="nav-count" id="navProtected">0</span>
           </button>
           <div class="nav-divider"></div>
           <button data-tab="settings" class="nav">
@@ -96,16 +96,19 @@
             </div>
           </div>
 
-          <div class="mini-stats">
-            <div class="mini-card green"><span class="mini-num" id="sumKeep">0</span><span class="mini-label">Keep</span></div>
-            <div class="mini-card amber"><span class="mini-num" id="sumReview">0</span><span class="mini-label">Review</span></div>
-            <div class="mini-card red"><span class="mini-num" id="sumInactive">0</span><span class="mini-label">Inactive</span></div>
-            <div class="mini-card blue"><span class="mini-num" id="sumProtected">0</span><span class="mini-label">Protected</span></div>
+          <div class="mini-stats" aria-label="Filter friends by status">
+            <button type="button" class="mini-card green" data-status="KEEP"><span class="mini-num" id="sumKeep">0</span><span class="mini-label">Keep</span></button>
+            <button type="button" class="mini-card amber" data-status="REVIEW"><span class="mini-num" id="sumReview">0</span><span class="mini-label">Review</span></button>
+            <button type="button" class="mini-card red" data-status="LIKELY_INACTIVE"><span class="mini-num" id="sumInactive">0</span><span class="mini-label">Inactive</span></button>
+            <button type="button" class="mini-card blue" data-status="PROTECTED"><span class="mini-num" id="sumProtected">0</span><span class="mini-label">Protected</span></button>
           </div>
 
           <div class="panel">
             <div class="panel-head">
-              <h2>Review queue</h2>
+              <div class="panel-title">
+                <h2 id="queueTitle">All friends</h2>
+                <p id="queueSubtitle">Browse and review your scanned friends.</p>
+              </div>
               <div class="controls">
                 <select id="statusFilter">
                   <option value="ALL">All</option>
@@ -132,7 +135,14 @@
             </div>
 
             <div id="friendList" class="friend-grid"></div>
-            <div id="emptyState" class="empty-state hidden">No friends here yet.</div>
+            <div id="emptyState" class="empty-state hidden">
+              <div class="empty-icon" aria-hidden="true">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              </div>
+              <h3 id="emptyTitle">No friends here</h3>
+              <p id="emptyMessage">Try another filter.</p>
+              <button type="button" class="btn-sm primary" id="emptyAction">Show all friends</button>
+            </div>
           </div>
         </section>
 

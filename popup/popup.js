@@ -26,8 +26,10 @@ const guideSteps = document.getElementById("guideSteps");
 const guideNote = document.getElementById("guideNote");
 const navBtn = document.getElementById("navBtn");
 const navBtnText = document.getElementById("navBtnText");
+const statSection = document.getElementById("statSection");
 
 let polling = null;
+let activeScanTabId = null;
 
 function getLevel(xp) {
   let lvl = 1;
@@ -77,8 +79,27 @@ function renderXp(xp) {
 
 async function activeFacebookTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id || !/^https:\/\/(www\.)?facebook\.com\//i.test(tab.url || "")) return null;
+  if (!tab?.id || !isFacebookUrl(tab.url || "")) return null;
   return tab;
+}
+
+function isFacebookUrl(rawUrl) {
+  try {
+    return /(^|\.)facebook\.com$/i.test(new URL(rawUrl).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isFriendsUrl(rawUrl) {
+  try {
+    const url = new URL(rawUrl);
+    if (!/(^|\.)facebook\.com$/i.test(url.hostname)) return false;
+    if (url.searchParams.get("sk")?.toLowerCase() === "friends") return true;
+    return /(?:^|\/)friends(?:\/|$)/i.test(url.pathname);
+  } catch {
+    return false;
+  }
 }
 
 async function refreshStats() {
@@ -93,9 +114,9 @@ async function refreshStats() {
   }, { total: 0, keep: 0, review: 0, inactive: 0 });
 
   document.getElementById("totalCount").textContent = counts.total;
-  document.getElementById("keepCount").textContent = counts.keep;
-  document.getElementById("reviewCount").textContent = counts.review;
-  document.getElementById("inactiveCount").textContent = counts.inactive;
+  document.querySelectorAll('[data-count="keep"]').forEach((node) => { node.textContent = counts.keep; });
+  document.querySelectorAll('[data-count="review"]').forEach((node) => { node.textContent = counts.review; });
+  document.querySelectorAll('[data-count="inactive"]').forEach((node) => { node.textContent = counts.inactive; });
 
   const circumference = 2 * Math.PI * 42;
   const offset = circumference - (Math.min(counts.total / 500, 1) * circumference);
@@ -108,11 +129,26 @@ async function refreshStats() {
 async function sendToActive(message) {
   const tab = await activeFacebookTab();
   if (!tab) return { ok: false, error: "Open Facebook in the active tab first." };
+
   try {
-    return await chrome.tabs.sendMessage(tab.id, message);
-  } catch {
-    return { ok: false, error: "Reload Facebook once after installing the extension, then try again." };
-  }
+    const response = await chrome.tabs.sendMessage(tab.id, message);
+    if (response != null) return response;
+  } catch {}
+
+  try {
+    const ensured = await chrome.runtime.sendMessage({
+      type: "ENSURE_CONTENT_SCRIPT",
+      tabId: tab.id
+    });
+    if (ensured?.ok) {
+      try {
+        const response = await chrome.tabs.sendMessage(tab.id, message);
+        if (response != null) return response;
+      } catch {}
+    }
+  } catch {}
+
+  return { ok: false, error: "Could not connect to the Facebook tab. Reload the page and try again." };
 }
 
 function showProgress(show) {
@@ -133,19 +169,40 @@ function updateProgress(data) {
   }
 }
 
-function startPolling() {
+function startPolling(tabId = activeScanTabId) {
   stopPolling();
+  activeScanTabId = tabId;
   polling = setInterval(async () => {
     const d = await chrome.storage.session.get(["scrollProgress"]);
     const p = d.scrollProgress;
-    if (!p || Date.now() - p.timestamp > 5000) {
-      if (p?.phase === "complete") {
-        stopPolling();
-        showProgress(false);
-        onScanComplete(p.scanned || 0, p.displayedTotal);
-      }
+    if (!p || (p.tabId != null && p.tabId !== activeScanTabId)) return;
+
+    if (p.phase === "complete") {
+      stopPolling();
+      showProgress(false);
+      await onScanComplete(p.scanned || 0, p.displayedTotal);
       return;
     }
+
+    if (p.phase === "error") {
+      stopPolling();
+      showProgress(false);
+      pageNotice.textContent = p.message || "Scan stopped unexpectedly.";
+      pageNotice.className = "error";
+      setScanBtnReady(true);
+      return;
+    }
+
+    if (p.phase === "cancelled") {
+      stopPolling();
+      showProgress(false);
+      pageNotice.textContent = "Scan cancelled.";
+      pageNotice.className = "";
+      setScanBtnReady(true);
+      return;
+    }
+
+    if (Date.now() - p.timestamp > 15000) return;
     updateProgress(p);
   }, 800);
 }
@@ -178,10 +235,26 @@ function setScanBtnReady(ready) {
 }
 
 scanBtn.addEventListener("click", async () => {
+  await beginScan();
+});
+
+async function beginScan() {
   setScanBtnReady(false);
   showProgress(true);
   progressMsg.textContent = "Auto-scrolling to find all friends...";
-  startPolling();
+  progressCount.textContent = "Starting...";
+
+  const tab = await activeFacebookTab();
+  if (!tab) {
+    showProgress(false);
+    pageNotice.textContent = "Open Facebook in the active tab first.";
+    pageNotice.className = "error";
+    setScanBtnReady(true);
+    return;
+  }
+
+  activeScanTabId = tab.id;
+  await chrome.storage.session.remove(["scrollProgress"]);
 
   const result = await sendToActive({ type: "AUTO_SCROLL_SCAN" });
   if (!result?.ok) {
@@ -192,10 +265,11 @@ scanBtn.addEventListener("click", async () => {
     setScanBtnReady(true);
     return;
   }
-  stopPolling();
-  showProgress(false);
-  onScanComplete(result.loadedCount, result.displayedTotal);
-});
+
+  pageNotice.textContent = result.alreadyRunning ? "Scan in progress..." : "Scanning your friends list now...";
+  pageNotice.className = "success";
+  startPolling(tab.id);
+}
 
 cancelBtn.addEventListener("click", async () => {
   await sendToActive({ type: "CANCEL_AUTO_SCROLL" });
@@ -229,12 +303,12 @@ document.querySelectorAll(".stat-pill").forEach((pill) => {
 navBtn.addEventListener("click", () => {
   chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
     const url = (tab?.url || "");
-    if (/facebook\.com/i.test(url)) {
-      if (!/\/friends/i.test(url)) {
-        chrome.tabs.update(tab.id, { url: "https://www.facebook.com/friends" });
+    if (isFacebookUrl(url)) {
+      if (!isFriendsUrl(url)) {
+        chrome.tabs.update(tab.id, { url: "https://www.facebook.com/feanneLM/friends" });
       }
     } else {
-      chrome.tabs.create({ url: "https://www.facebook.com/friends" });
+      chrome.tabs.create({ url: "https://www.facebook.com/feanneLM/friends" });
     }
     window.close();
   });
@@ -243,6 +317,7 @@ navBtn.addEventListener("click", () => {
 function showGuide(type) {
   guideSection.classList.remove("hidden");
   scanSection.classList.add("hidden");
+  statSection.classList.remove("hidden");
 
   if (type === "not-facebook") {
     guideIcon.className = "guide-icon warning";
@@ -271,6 +346,7 @@ function showGuide(type) {
 
 function showScanUI() {
   guideSection.classList.add("hidden");
+  statSection.classList.add("hidden");
   scanSection.classList.remove("hidden");
 }
 
@@ -285,8 +361,8 @@ function showScanUI() {
   }
 
   const url = tab.url || "";
-  const isFriendsPage = /\/friends(?:\/|\?|$)/i.test(url);
-  const isFacebook = /facebook\.com/i.test(url);
+  const isFriendsPage = isFriendsUrl(url);
+  const isFacebook = isFacebookUrl(url);
 
   if (!isFacebook) {
     showGuide("not-facebook");
@@ -303,37 +379,25 @@ function showScanUI() {
   }
 
   showScanUI();
+  activeScanTabId = tab.id;
+  const scannerStatus = await sendToActive({ type: "PING" });
+  if (scannerStatus?.ok) watchToggle.checked = Boolean(scannerStatus.watching);
 
   const d = await chrome.storage.session.get(["scrollProgress"]);
   const p = d.scrollProgress;
-  if (p && p.phase !== "complete" && Date.now() - p.timestamp < 5000) {
+  const isCurrentTabProgress = p && (p.tabId == null || p.tabId === tab.id);
+  if (isCurrentTabProgress && p.phase === "scanning" && Date.now() - p.timestamp < 15000) {
     pageNotice.textContent = "Scan in progress...";
     pageNotice.className = "success";
     showProgress(true);
-    startPolling();
-  } else if (p?.phase === "complete") {
+    updateProgress(p);
+    setScanBtnReady(false);
+    startPolling(tab.id);
+  } else if (isCurrentTabProgress && p.phase === "complete") {
     pageNotice.textContent = `Last scan found ${p.scanned || 0} friends.`;
     pageNotice.className = "success";
   } else {
-    pageNotice.textContent = "Scanning your friends list now...";
-    pageNotice.className = "success";
-    setScanBtnReady(false);
-    showProgress(true);
-    startPolling();
-      sendToActive({ type: "AUTO_SCROLL_SCAN" }).then((result) => {
-        if (result?.ok) {
-          stopPolling();
-          showProgress(false);
-          onScanComplete(result.loadedCount, result.displayedTotal);
-        } else {
-        stopPolling();
-        showProgress(false);
-        pageNotice.textContent = result?.error || "Scan complete.";
-        pageNotice.className = result?.ok === false ? "error" : "success";
-        setScanBtnReady(true);
-        refreshStats();
-      }
-    });
+    await beginScan();
   }
 
   await refreshStats();

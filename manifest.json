@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "FriendList Rehab",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Review your Facebook friends using visible activity signals, mutual friends, protection rules, and a safe review-first workflow.",
-  "permissions": ["storage"],
+  "permissions": ["storage", "scripting", "tabs"],
   "host_permissions": [
     "https://www.facebook.com/*",
-    "https://facebook.com/*"
+    "https://facebook.com/*",
+    "https://*.facebook.com/*"
   ],
   "background": {
     "service_worker": "background/service-worker.js"
@@ -27,7 +28,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.facebook.com/*", "https://facebook.com/*"],
+      "matches": ["https://www.facebook.com/*", "https://facebook.com/*", "https://*.facebook.com/*"],
       "js": [
         "lib/constants.js",
         "lib/scoring.js",
@@ -41,7 +42,7 @@
   "web_accessible_resources": [
     {
       "resources": ["assets/*"],
-      "matches": ["https://www.facebook.com/*", "https://facebook.com/*"]
+      "matches": ["https://www.facebook.com/*", "https://facebook.com/*", "https://*.facebook.com/*"]
     }
   ]
 }

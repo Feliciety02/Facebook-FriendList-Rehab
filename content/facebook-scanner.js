@@ -2,10 +2,23 @@
   const root = globalThis.FriendListRehab;
   if (!root) return;
 
+  // An extension reload can leave this isolated page world alive while its old
+  // runtime listener is disconnected. Tear down any prior instance and attach
+  // a fresh listener instead of trusting a permanent "loaded" boolean.
+  try {
+    globalThis.__friendListRehabScannerCleanup?.();
+  } catch {}
+
   const { STORAGE_KEYS, DEFAULT_SETTINGS } = root;
   const utils = root.facebookUtils;
   let scrollActive = false;
   let abortController = null;
+  let scanTask = null;
+  let watchObserver = null;
+  let watchTimer = null;
+  let autoStartTimer = null;
+  let navigationInterval = null;
+  let lastUrl = location.href;
   const scannedIds = new Set();
 
   function safeText(node) {
@@ -214,19 +227,25 @@
     }
 
     await chrome.runtime.sendMessage({ type: "REGISTER_FRIENDS_TAB" }).catch(() => {});
-
-    const state = await loadState();
-    const alreadyStored = new Set(state.friends.map((f) => f.id));
-    for (const id of alreadyStored) scannedIds.add(id);
+    if (!utils.isFriendsPage()) {
+      return { ok: false, error: "The Friends page was left before scanning could start." };
+    }
 
     scrollActive = true;
     abortController = new AbortController();
     const signal = abortController.signal;
 
-    const container = getScrollContainer();
+    // Count this page's scan independently from previously stored friends.
+    // Otherwise an old stored total can make a new scan stop immediately.
+    scannedIds.clear();
+    const initiallyVisible = scanAllDOM();
+    for (const id of initiallyVisible.keys()) scannedIds.add(id);
+    if (initiallyVisible.size > 0) await mergeAndStore(initiallyVisible);
+
+    const container = await waitFor(() => getScrollContainer(), 10000);
     if (!container) {
       scrollActive = false;
-      return { ok: false, error: "Cannot find scrollable container on this page." };
+      return { ok: false, error: "The Friends list did not finish loading. Open the list and try again." };
     }
 
     const displayedTotal = getDisplayedFriendCount();
@@ -268,9 +287,7 @@
         if (signal.aborted) break;
 
         const newFriends = scanDOMForNew();
-        for (const [id, friend] of newFriends) {
-          scannedIds.set ? scannedIds.add(id) : null;
-        }
+        for (const id of newFriends.keys()) scannedIds.add(id);
 
         const currentCount = scannedIds.size;
 
@@ -317,6 +334,20 @@
         scrollActive = false;
         return { ok: false, error: "Scan was cancelled." };
       }
+      throw err;
+    }
+
+    if (signal.aborted) {
+      await broadcastProgress({
+        phase: "cancelled",
+        message: "Scan cancelled.",
+        scanned: scannedIds.size,
+        displayedTotal,
+        newSinceLast: 0
+      });
+      scrollActive = false;
+      abortController = null;
+      return { ok: false, error: "Scan was cancelled." };
     }
 
     const finalAll = scanAllDOM();
@@ -344,10 +375,102 @@
     };
   }
 
+  function startAutoScrollScan() {
+    if (!utils.isFriendsPage()) {
+      return { ok: false, error: "Open your Facebook Friends page first." };
+    }
+
+    if (scanTask || scrollActive) {
+      return { ok: true, started: false, alreadyRunning: true };
+    }
+
+    scanTask = autoScrollScan()
+      .then(async (result) => {
+        if (result?.ok === false && result.error !== "Scan was cancelled.") {
+          await broadcastProgress({
+            phase: "error",
+            message: result.error,
+            scanned: scannedIds.size,
+            displayedTotal: getDisplayedFriendCount()
+          });
+        }
+        return result;
+      })
+      .catch(async (error) => {
+        await broadcastProgress({
+          phase: "error",
+          message: error?.message || "The scan stopped unexpectedly.",
+          scanned: scannedIds.size,
+          displayedTotal: getDisplayedFriendCount()
+        });
+      })
+      .finally(() => {
+        scrollActive = false;
+        abortController = null;
+        scanTask = null;
+      });
+
+    return { ok: true, started: true };
+  }
+
   function cancelAutoScroll() {
     if (abortController) abortController.abort();
     scrollActive = false;
     return { ok: true };
+  }
+
+  function stopWatch() {
+    watchObserver?.disconnect();
+    watchObserver = null;
+    if (watchTimer) clearTimeout(watchTimer);
+    watchTimer = null;
+    return { ok: true };
+  }
+
+  function startWatch() {
+    if (!utils.isFriendsPage()) {
+      return { ok: false, error: "Open your Facebook Friends page first." };
+    }
+    if (watchObserver) return { ok: true, alreadyWatching: true };
+
+    watchObserver = new MutationObserver(() => {
+      if (scrollActive || watchTimer) return;
+      watchTimer = setTimeout(() => {
+        watchTimer = null;
+        if (utils.isFriendsPage() && !scrollActive) {
+          scanLoadedFriends().catch(() => {});
+        }
+      }, 700);
+    });
+    watchObserver.observe(document.body, { childList: true, subtree: true });
+    return { ok: true };
+  }
+
+  function scheduleAutomaticScan() {
+    if (autoStartTimer) clearTimeout(autoStartTimer);
+    autoStartTimer = null;
+
+    if (!utils.isFriendsPage()) return;
+    chrome.runtime.sendMessage({ type: "REGISTER_FRIENDS_TAB" }).catch(() => {});
+    autoStartTimer = setTimeout(() => {
+      autoStartTimer = null;
+      startAutoScrollScan();
+    }, 1600);
+  }
+
+  function handleFacebookNavigation() {
+    if (location.href === lastUrl) return;
+    const wasFriendsPage = utils.isFriendsUrl(lastUrl);
+    lastUrl = location.href;
+    const isFriendsPage = utils.isFriendsPage();
+
+    if (!isFriendsPage) {
+      if (wasFriendsPage) cancelAutoScroll();
+      stopWatch();
+      return;
+    }
+
+    scheduleAutomaticScan();
   }
 
   function findFriendCardByUrl(profileUrl) {
@@ -427,15 +550,25 @@
     return { ok: true, message: "Unfriend action confirmed." };
   }
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  function handleRuntimeMessage(message, _sender, sendResponse) {
+    if (message?.type === "PING") {
+      sendResponse({
+        ok: true,
+        isFriendsPage: utils.isFriendsPage(),
+        scanning: Boolean(scanTask || scrollActive),
+        watching: Boolean(watchObserver)
+      });
+      return false;
+    }
+
     if (message?.type === "SCAN_LOADED_FRIENDS") {
       scanLoadedFriends().then(sendResponse).catch((error) => sendResponse({ ok: false, error: error.message }));
       return true;
     }
 
     if (message?.type === "AUTO_SCROLL_SCAN") {
-      autoScrollScan().then(sendResponse).catch((error) => sendResponse({ ok: false, error: error.message }));
-      return true;
+      sendResponse(startAutoScrollScan());
+      return false;
     }
 
     if (message?.type === "CANCEL_AUTO_SCROLL") {
@@ -445,7 +578,17 @@
     }
 
     if (message?.type === "SCROLL_STATUS") {
-      sendResponse({ active: scrollActive });
+      sendResponse({ active: Boolean(scanTask || scrollActive) });
+      return false;
+    }
+
+    if (message?.type === "START_WATCH") {
+      sendResponse(startWatch());
+      return false;
+    }
+
+    if (message?.type === "STOP_WATCH") {
+      sendResponse(stopWatch());
       return false;
     }
 
@@ -455,15 +598,24 @@
         .catch((error) => sendResponse({ ok: false, error: error.message }));
       return true;
     }
-  });
-
-  if (utils.isFriendsPage()) {
-    chrome.runtime.sendMessage({ type: "REGISTER_FRIENDS_TAB" }).catch(() => {});
-
-    setTimeout(() => {
-      if (!scrollActive) {
-        autoScrollScan().catch(() => {});
-      }
-    }, 2000);
   }
+
+  chrome.runtime.onMessage.addListener(handleRuntimeMessage);
+
+  scheduleAutomaticScan();
+
+  // Facebook is a single-page app, so content scripts survive route changes.
+  // Watch the URL and start scanning when the user reaches any Friends route.
+  navigationInterval = setInterval(handleFacebookNavigation, 750);
+
+  globalThis.__friendListRehabScannerCleanup = () => {
+    if (autoStartTimer) clearTimeout(autoStartTimer);
+    if (navigationInterval) clearInterval(navigationInterval);
+    stopWatch();
+    cancelAutoScroll();
+    try {
+      chrome.runtime.onMessage.removeListener(handleRuntimeMessage);
+    } catch {}
+    globalThis.__friendListRehabScannerCleanup = null;
+  };
 })();
