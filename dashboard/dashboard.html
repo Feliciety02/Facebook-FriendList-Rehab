@@ -131,6 +131,7 @@
               <div class="bulk-actions">
                 <button class="btn-sm ghost" id="selectAllBtn">Select inactive</button>
                 <button class="btn-sm primary" id="reviewBtn" disabled>Review selected</button>
+                <button class="btn-sm danger" id="unfriendAllBtn">Unfriend All Inactive</button>
               </div>
             </div>
 
@@ -174,6 +175,21 @@
               <div><b>Dry Run</b><small>Simulates removals only</small></div>
               <input id="dryRun" type="checkbox">
             </label>
+            <label class="switch-field">
+              <div><b>Auto-unfriend</b><small>Automatically remove inactive friends</small></div>
+              <input id="autoUnfriend" type="checkbox">
+            </label>
+          </div>
+          <div class="ml-stats" id="mlStats">
+            <div class="ml-header">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M20.66 7A10 10 0 0 0 14 3.34"/></svg>
+              <b>ML Learning Status</b>
+            </div>
+            <div class="ml-grid">
+              <div><span id="mlFeedbackCount">0</span><small>decisions learned</small></div>
+              <div><span id="mlReadyStatus">Not trained</span><small>model status</small></div>
+            </div>
+            <p class="ml-note">Keep/Remove friends to teach the model. It gets smarter with each decision.</p>
           </div>
           <div class="settings-actions">
             <button class="btn-sm ghost" id="resetBtn">Reset</button>
@@ -206,6 +222,22 @@
         <button id="processBtn" class="btn-sm danger" type="button">Process</button>
       </div>
       <div id="processStatus" class="process-status"></div>
+    </form>
+  </dialog>
+
+  <dialog id="unfriendAllDialog">
+    <form method="dialog" class="dialog-card">
+      <div class="dialog-head">
+        <div><p class="eyebrow">AUTO-UNFRIEND</p><h2>Remove all inactive friends?</h2></div>
+        <button value="cancel" class="close-btn">&times;</button>
+      </div>
+      <p class="dialog-warning">This will unfriend all <b id="unfriendAllCount">0</b> inactive friends one by one. This action cannot be undone. Make sure Dry Run is OFF for real removal.</p>
+      <div id="unfriendAllList" class="dialog-list"></div>
+      <div class="dialog-actions">
+        <button value="cancel" class="btn-sm ghost">Cancel</button>
+        <button id="unfriendAllConfirmBtn" class="btn-sm danger" type="button">Unfriend All</button>
+      </div>
+      <div id="unfriendAllStatus" class="process-status"></div>
     </form>
   </dialog>
 

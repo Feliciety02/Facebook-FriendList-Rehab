@@ -12,6 +12,7 @@ chrome.runtime.onInstalled.addListener(async () => {
         privateProfileProtection: true,
         excludeProtected: true,
         dryRun: true,
+        autoUnfriend: false,
         developerMode: false
       }
     });
@@ -22,6 +23,7 @@ async function injectContentScript(tabId) {
   const files = [
     "lib/constants.js",
     "lib/scoring.js",
+    "lib/ml-classifier.js",
     "lib/facebook-utils.js",
     "content/facebook-scanner.js"
   ];

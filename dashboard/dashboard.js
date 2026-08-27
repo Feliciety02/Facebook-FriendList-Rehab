@@ -138,6 +138,7 @@ async function load() {
   applySettingsToForm();
   render();
   renderXp(await getXp());
+  renderMlStats();
 }
 
 function counts() {
@@ -339,6 +340,11 @@ function renderFriendList() {
   $("selectAllBtn").textContent = c.inactive > 0
     ? `Select inactive (${c.inactive})`
     : "No inactive friends";
+  const unfriendAllBtn = $("unfriendAllBtn");
+  unfriendAllBtn.disabled = c.inactive === 0;
+  unfriendAllBtn.textContent = c.inactive > 0
+    ? `Unfriend All (${c.inactive})`
+    : "No inactive friends";
 }
 
 function renderHistory() {
@@ -423,6 +429,10 @@ async function markKeep(id) {
   f.reasons = ["Kept manually"];
   await persistFriends();
   await addHistory(f, "Kept");
+  if (app.mlClassifier) {
+    await app.mlClassifier.addKeepDecisions([f]);
+    await renderMlStats();
+  }
   await addXp(XP_PER_REVIEW);
   showAchievement("\u2705", `${f.name} kept \u2014 +${XP_PER_REVIEW} XP`);
   if (typeof fireConfetti === "function") fireConfetti(30);
@@ -485,6 +495,9 @@ async function processSelected() {
 
     f.selected = false;
     await addHistory(f, "Removed");
+    if (app.mlClassifier) {
+      await app.mlClassifier.addRemoveDecisions([f]);
+    }
     xpEarned += XP_PER_UNFRIEND;
     await new Promise((r) => setTimeout(r, 4000));
   }
@@ -495,9 +508,103 @@ async function processSelected() {
     if (typeof fireConfetti === "function") fireConfetti(120);
   }
 
+  await renderMlStats();
   await persistFriends();
   $("processBtn").disabled = false;
   $("reviewDialog").close();
+  render();
+}
+
+async function renderMlStats() {
+  if (!app.mlClassifier) {
+    $("mlFeedbackCount").textContent = "0";
+    $("mlReadyStatus").textContent = "ML unavailable";
+    return;
+  }
+  const stats = app.mlClassifier.getStats();
+  $("mlFeedbackCount").textContent = stats.totalFeedback;
+  $("mlReadyStatus").textContent = stats.modelTrained ? "Trained" : "Needs more data";
+  $("mlReadyStatus").style.color = stats.modelTrained ? "var(--success)" : "var(--muted)";
+}
+
+function inactiveFriends() {
+  return friends.filter((f) => f.status === STATUS.LIKELY_INACTIVE && !f.protected && !f.protectedFromRemoval);
+}
+
+function openUnfriendAllDialog() {
+  const queue = inactiveFriends();
+  if (!queue.length) {
+    showAchievement("\u2139\ufe0f", "No inactive friends to unfriend");
+    return;
+  }
+  const list = $("unfriendAllList");
+  list.replaceChildren();
+  for (const f of queue) {
+    const row = document.createElement("div");
+    row.className = "dialog-item";
+    row.innerHTML = `<div><b>${f.name}</b><br><small>Score ${f.inactiveScore || 0} \u00b7 ${Number.isFinite(f.mutualFriends) ? f.mutualFriends + " mutual" : "mutuals ?"}</small></div><span class="badge inactive">Inactive</span>`;
+    list.appendChild(row);
+  }
+  $("unfriendAllCount").textContent = queue.length;
+  $("unfriendAllStatus").textContent = settings.dryRun
+    ? "Dry Run is ON. Simulating all removals."
+    : "Live mode. Will unfriend all inactive friends one by one.";
+  $("unfriendAllDialog").showModal();
+}
+
+async function processUnfriendAll() {
+  const queue = inactiveFriends();
+  if (!queue.length) return;
+  $("unfriendAllConfirmBtn").disabled = true;
+
+  let xpEarned = 0;
+
+  for (let i = 0; i < queue.length; i++) {
+    const f = queue[i];
+    $("unfriendAllStatus").textContent = `${i + 1} / ${queue.length}: ${f.name}`;
+
+    if (settings.dryRun) {
+      await new Promise((r) => setTimeout(r, 300));
+      await addHistory(f, "Dry-run (unfriend all)");
+      xpEarned += 10;
+      continue;
+    }
+
+    const resp = await chrome.runtime.sendMessage({
+      type: "SEND_TO_FRIENDS_TAB",
+      payload: { type: "ATTEMPT_UNFRIEND", profileUrl: f.profileUrl, friend: f }
+    });
+
+    if (!resp?.ok) {
+      $("unfriendAllStatus").textContent = resp?.error || "Could not reach Facebook tab.";
+      break;
+    }
+
+    const result = resp.result;
+    if (!result?.ok) {
+      await addHistory(f, result?.skipped ? "Skipped" : "Stopped");
+      $("unfriendAllStatus").textContent = `${f.name}: ${result?.error || "Stopped."}`;
+      break;
+    }
+
+    await addHistory(f, "Removed");
+    if (app.mlClassifier) {
+      await app.mlClassifier.addRemoveDecisions([f]);
+    }
+    xpEarned += XP_PER_UNFRIEND;
+    await new Promise((r) => setTimeout(r, 4000));
+  }
+
+  if (xpEarned > 0) {
+    await addXp(xpEarned);
+    showAchievement("\ud83c\udfc6", `+${xpEarned} XP earned!`);
+    if (typeof fireConfetti === "function") fireConfetti(120);
+  }
+
+  await renderMlStats();
+  await persistFriends();
+  $("unfriendAllConfirmBtn").disabled = false;
+  $("unfriendAllDialog").close();
   render();
 }
 
@@ -508,6 +615,7 @@ function applySettingsToForm() {
   $("protectRecentActivity").checked = settings.protectRecentActivity;
   $("privateProfileProtection").checked = settings.privateProfileProtection;
   $("dryRun").checked = settings.dryRun;
+  $("autoUnfriend").checked = settings.autoUnfriend || false;
 }
 
 async function saveSettings() {
@@ -518,7 +626,8 @@ async function saveSettings() {
     inactiveScoreThreshold: Number($("inactiveScoreThreshold").value),
     protectRecentActivity: $("protectRecentActivity").checked,
     privateProfileProtection: $("privateProfileProtection").checked,
-    dryRun: $("dryRun").checked
+    dryRun: $("dryRun").checked,
+    autoUnfriend: $("autoUnfriend").checked
   };
 
   friends = friends.map((f) => {
@@ -582,6 +691,8 @@ $("selectAllBtn").addEventListener("click", async () => {
 });
 $("reviewBtn").addEventListener("click", openReviewDialog);
 $("processBtn").addEventListener("click", processSelected);
+$("unfriendAllBtn").addEventListener("click", openUnfriendAllDialog);
+$("unfriendAllConfirmBtn").addEventListener("click", processUnfriendAll);
 $("saveBtn").addEventListener("click", saveSettings);
 $("resetBtn").addEventListener("click", () => { settings = { ...DEFAULT_SETTINGS }; applySettingsToForm(); });
 $("clearHistoryBtn").addEventListener("click", async () => {
