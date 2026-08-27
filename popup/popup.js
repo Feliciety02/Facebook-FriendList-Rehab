@@ -136,11 +136,11 @@ async function sendToActive(message) {
   } catch {}
 
   try {
-    const ensured = await chrome.runtime.sendMessage({
-      type: "ENSURE_CONTENT_SCRIPT",
+    const conn = await chrome.runtime.sendMessage({
+      type: "ENSURE_CONNECTION",
       tabId: tab.id
     });
-    if (ensured?.ok) {
+    if (conn?.ok) {
       try {
         const response = await chrome.tabs.sendMessage(tab.id, message);
         if (response != null) return response;
@@ -148,7 +148,7 @@ async function sendToActive(message) {
     }
   } catch {}
 
-  return { ok: false, error: "Could not connect to the Facebook tab. Reload the page and try again." };
+  return { ok: false, error: "Could not connect to the Facebook tab. Make sure you are on facebook.com and reload the page." };
 }
 
 function showProgress(show) {

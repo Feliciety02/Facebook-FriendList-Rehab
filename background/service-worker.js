@@ -18,48 +18,37 @@ chrome.runtime.onInstalled.addListener(async () => {
   }
 });
 
-function isFacebookUrl(url) {
-  try {
-    return /facebook\.com$/i.test(new URL(url).hostname) ||
-      /\.facebook\.com$/i.test(new URL(url).hostname);
-  } catch {
-    return false;
+async function injectContentScript(tabId) {
+  const files = [
+    "lib/constants.js",
+    "lib/scoring.js",
+    "lib/facebook-utils.js",
+    "content/facebook-scanner.js"
+  ];
+  const css = ["content/content.css"];
+
+  for (const file of files) {
+    await chrome.scripting.executeScript({ target: { tabId }, files: [file] })
+      .catch(() => {});
+  }
+  for (const file of css) {
+    await chrome.scripting.insertCSS({ target: { tabId }, files: [file] })
+      .catch(() => {});
   }
 }
 
-async function ensureContentScript(tabId) {
-  const tab = await chrome.tabs.get(tabId);
-  if (!isFacebookUrl(tab.url || "")) {
-    return { ok: false, error: "The active tab is not a Facebook page." };
-  }
-
+async function ensureConnection(tabId) {
   try {
-    const status = await chrome.tabs.sendMessage(tabId, { type: "PING" });
-    if (status?.ok) return { ok: true, injected: false };
+    const resp = await chrome.tabs.sendMessage(tabId, { type: "PING" });
+    if (resp?.ok) return { ok: true };
   } catch {
-    if (typeof chrome.scripting === "undefined") {
-      return { ok: false, error: "scripting API not available. Reload the extension." };
-    }
     try {
-      await chrome.scripting.executeScript({
-        target: { tabId },
-        files: [
-          "lib/constants.js",
-          "lib/scoring.js",
-          "lib/facebook-utils.js",
-          "content/facebook-scanner.js"
-        ]
-      });
-      await chrome.scripting.insertCSS({
-        target: { tabId },
-        files: ["content/content.css"]
-      }).catch(() => {});
-    } catch (e) {
-      return { ok: false, error: "Could not inject scripts: " + e.message };
-    }
+      await injectContentScript(tabId);
+      const resp = await chrome.tabs.sendMessage(tabId, { type: "PING" });
+      if (resp?.ok) return { ok: true };
+    } catch {}
   }
-
-  return { ok: true, injected: true };
+  return { ok: false, error: "Could not connect to the Facebook tab. Make sure you are on Facebook and reload the page." };
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -76,8 +65,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
-  if (message?.type === "ENSURE_CONTENT_SCRIPT" && Number.isInteger(message.tabId)) {
-    ensureContentScript(message.tabId)
+  if (message?.type === "ENSURE_CONNECTION" && Number.isInteger(message.tabId)) {
+    ensureConnection(message.tabId)
       .then(sendResponse)
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
@@ -86,7 +75,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "SCROLL_PROGRESS") {
     chrome.storage.session.set({
       scrollProgress: {
-        ...message,
+        phase: message.phase,
+        message: message.message,
+        scanned: message.scanned,
+        displayedTotal: message.displayedTotal,
+        newSinceLast: message.newSinceLast,
+        round: message.round,
         tabId: sender.tab?.id ?? null,
         timestamp: Date.now()
       }
@@ -100,26 +94,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       const stored = await chrome.storage.session.get([SOURCE_TAB_KEY]);
       const tabId = stored[SOURCE_TAB_KEY];
-      if (!tabId) {
-        sendResponse({ ok: false, error: "No Facebook Friends tab has registered yet." });
+
+      if (tabId) {
+        try {
+          const result = await chrome.tabs.sendMessage(tabId, message.payload);
+          sendResponse({ ok: true, result });
+          return;
+        } catch {
+          const conn = await ensureConnection(tabId);
+          if (conn.ok) {
+            try {
+              const result = await chrome.tabs.sendMessage(tabId, message.payload);
+              sendResponse({ ok: true, result });
+              return;
+            } catch {}
+          }
+        }
+      }
+
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) {
+        sendResponse({ ok: false, error: "No active tab found." });
+        return;
+      }
+
+      const conn = await ensureConnection(tab.id);
+      if (!conn.ok) {
+        sendResponse({ ok: false, error: conn.error });
         return;
       }
 
       try {
-        const result = await chrome.tabs.sendMessage(tabId, message.payload);
+        await chrome.storage.session.set({ [SOURCE_TAB_KEY]: tab.id });
+        const result = await chrome.tabs.sendMessage(tab.id, message.payload);
         sendResponse({ ok: true, result });
-      } catch {
-        const ensure = await ensureContentScript(tabId).catch(() => ({ ok: false }));
-        if (!ensure.ok) {
-          sendResponse({ ok: false, error: "Could not connect to Facebook tab. Reload the page and try again." });
-          return;
-        }
-        try {
-          const result = await chrome.tabs.sendMessage(tabId, message.payload);
-          sendResponse({ ok: true, result });
-        } catch (error) {
-          sendResponse({ ok: false, error: error.message });
-        }
+      } catch (error) {
+        sendResponse({ ok: false, error: error.message });
       }
     })();
     return true;
