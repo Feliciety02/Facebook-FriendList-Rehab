@@ -184,6 +184,19 @@ function startPolling(tabId = activeScanTabId) {
       return;
     }
 
+    if (p.phase === "auto-unfriend") {
+      statusText.textContent = p.message || "Auto-unfriending inactive friends...";
+      statusText.className = "accent";
+      return;
+    }
+
+    if (p.phase === "auto-unfriend-complete") {
+      statusText.textContent = p.message || "Auto-unfriend complete!";
+      statusText.className = "success";
+      setScanBtnReady(true);
+      return;
+    }
+
     if (p.phase === "error") {
       stopPolling();
       showProgress(false);

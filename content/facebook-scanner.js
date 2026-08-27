@@ -261,6 +261,32 @@
       displayedTotal: dt
     });
 
+    const state = await loadState();
+    if (state.settings.autoUnfriend) {
+      await broadcastProgress({
+        phase: "auto-unfriend",
+        message: "Auto-unfriend enabled. Starting automatic removal..."
+      });
+      const inactive = state.friends.filter((f) => f.status === "LIKELY_INACTIVE" && !f.protected && !f.protectedFromRemoval);
+      for (let i = 0; i < inactive.length; i++) {
+        const f = inactive[i];
+        await broadcastProgress({
+          phase: "auto-unfriend",
+          message: `Auto-unfriending ${i + 1} / ${inactive.length}: ${f.name}`,
+          scanned: scannedIds.size,
+          displayedTotal: dt
+        });
+        try {
+          await handleAttemptUnfriend({ profileUrl: f.profileUrl, friend: f });
+          await sleep(4000);
+        } catch {}
+      }
+      await broadcastProgress({
+        phase: "auto-unfriend-complete",
+        message: `Auto-unfriend complete. Processed ${inactive.length} friends.`
+      });
+    }
+
     scrollActive = false;
     abortController = null;
     scanTask = null;
@@ -289,6 +315,80 @@
     return { ok: true };
   }
 
+  async function handleAttemptUnfriend(payload) {
+    const { profileUrl, friend } = payload;
+    if (!profileUrl) return { ok: false, error: "No profile URL provided." };
+
+    const newTab = window.open(profileUrl, "_blank");
+    if (!newTab) return { ok: false, error: "Popup blocked. Allow popups for Facebook." };
+
+    await sleep(2500);
+
+    let attempts = 0;
+    let unfriended = false;
+    let lastError = "Could not find friend button.";
+
+    while (attempts < 5 && !unfriended) {
+      attempts++;
+      try {
+        const allBtns = [...newTab.document.querySelectorAll('[role="button"], button, span[role="button"]')];
+        const friendBtn = allBtns.find((b) => {
+          const t = (b.textContent || b.getAttribute("aria-label") || "").trim().toLowerCase();
+          return t === "friends" || t === "add friend" || t === "cancel" || t.includes("friends");
+        });
+
+        if (!friendBtn) {
+          lastError = `Attempt ${attempts}: Friend button not found.`;
+          await sleep(1500);
+          continue;
+        }
+
+        friendBtn.click();
+        await sleep(1000);
+
+        const menuItems = [...newTab.document.querySelectorAll('[role="menuitem"], [role="menuitemcheckbox"], [role="option"], li, a')];
+        const unfriendItem = menuItems.find((item) => {
+          const t = (item.textContent || "").trim().toLowerCase();
+          return t.includes("unfriend") || t.includes("remove friend") || t.includes("remove from friends");
+        });
+
+        if (!unfriendItem) {
+          lastError = `Attempt ${attempts}: Unfriend option not found in menu.`;
+          await sleep(1000);
+          continue;
+        }
+
+        unfriendItem.click();
+        await sleep(1000);
+
+        const confirmBtns = [...newTab.document.querySelectorAll('[role="dialog"] [role="button"], [role="dialog"] button, [aria-label="Confirm"], [aria-label="Remove"]')];
+        const confirmBtn = confirmBtns.find((b) => {
+          const t = (b.textContent || "").trim().toLowerCase();
+          return t.includes("confirm") || t.includes("remove") || t === "okay" || t === "ok";
+        });
+
+        if (confirmBtn) {
+          confirmBtn.click();
+          await sleep(1500);
+        }
+
+        unfriended = true;
+        lastError = null;
+      } catch (e) {
+        lastError = `Attempt ${attempts}: ${e.message}`;
+        await sleep(1500);
+      }
+    }
+
+    try { newTab.close(); } catch {}
+
+    if (unfriended) {
+      return { ok: true };
+    } else {
+      return { ok: false, error: lastError || "Failed to unfriend after multiple attempts." };
+    }
+  }
+
   function handleMessage(message, _sender, sendResponse) {
     if (message?.type === "PING") {
       sendResponse({ ok: true, isFriendsPage: utils.isFriendsPage(), scanning: scrollActive });
@@ -311,8 +411,8 @@
       return false;
     }
     if (message?.type === "ATTEMPT_UNFRIEND") {
-      sendResponse({ ok: false, error: "Unfriend not implemented in this version." });
-      return false;
+      handleAttemptUnfriend(message.payload).then(sendResponse).catch((e) => sendResponse({ ok: false, error: e.message }));
+      return true;
     }
   }
 

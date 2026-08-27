@@ -32,6 +32,7 @@
       "js": [
         "lib/constants.js",
         "lib/scoring.js",
+        "lib/ml-classifier.js",
         "lib/facebook-utils.js",
         "content/facebook-scanner.js"
       ],

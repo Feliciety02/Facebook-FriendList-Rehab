@@ -753,6 +753,58 @@ dialog::backdrop { background: rgba(0,0,0,.4); backdrop-filter: blur(4px); }
   color: var(--muted);
 }
 
+/* ── ML Stats ── */
+.ml-stats {
+  margin-top: 14px;
+  padding: 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.ml-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 10px;
+  color: var(--accent);
+}
+
+.ml-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.ml-grid div {
+  text-align: center;
+  padding: 8px;
+  background: var(--card);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.ml-grid span {
+  display: block;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.ml-grid small {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.ml-note {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
 /* ── Confetti ── */
 .confetti-canvas {
   position: fixed;
