@@ -5,7 +5,7 @@
   const { STORAGE_KEYS, DEFAULT_SETTINGS } = root;
   const utils = root.facebookUtils;
 
-  try { globalThis.__frRehabCleanup?.(); } catch {}
+  try { globalThis.__friendListRehabScannerCleanup?.(); } catch {}
 
   const scannedIds = new Set();
   let scrollActive = false;
@@ -208,7 +208,7 @@
         if (signal.aborted) break;
 
         const newFriends = scanDOMForNew();
-        for (const [id] of newFriends) scannedIds.add(id);
+        for (const id of newFriends.keys()) scannedIds.add(id);
 
         if (newFriends.size > 0) {
           await mergeAndStore(newFriends);
@@ -423,11 +423,11 @@
     setTimeout(startAutoScan, 2000);
   }
 
-  globalThis.__frRehabCleanup = () => {
+  globalThis.__friendListRehabScannerCleanup = () => {
     if (abortController) abortController.abort();
     scrollActive = false;
     scanTask = null;
     try { chrome.runtime.onMessage.removeListener(handleMessage); } catch {}
-    globalThis.__frRehabCleanup = null;
+    globalThis.__friendListRehabScannerCleanup = null;
   };
 })();
